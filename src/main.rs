@@ -213,6 +213,38 @@ impl Buffer {
             EditAction::NewLine => {
                 self.insert_string("\n");
             }
+            EditAction::MoveLeft => {
+                let line = self.lines.get(self.cursor.line).unwrap();
+                if self.cursor.index > 0 {
+                    let mut prev_index = 0;
+                    for (i, _c) in line.content.chars().enumerate() {
+                        if i < self.cursor.index {
+                            prev_index = i;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    self.cursor.index = prev_index;
+                } else if self.cursor.line > 0 {
+                    self.cursor.line -= 1;
+                    self.cursor.index = self.lines.get(self.cursor.line).unwrap().content.len();
+                }
+            }
+            EditAction::MoveRight => {
+                let line = self.lines.get(self.cursor.line).unwrap();
+                if self.cursor.index < line.content.len() {
+                    for (i, _c) in line.content.chars().enumerate() {
+                        if i == self.cursor.index {
+                            self.cursor.index += 1; // c.len()
+                            break;
+                        }
+                    }
+                } else if self.cursor.line + 1 < self.lines.len() {
+                    self.cursor.line += 1;
+                    self.cursor.index = 0;
+                }
+            }
         }
     }
 }
@@ -239,6 +271,8 @@ pub enum EditAction {
     ClearSelection,
     DeleteSelection,
     NewLine,
+    MoveLeft,
+    MoveRight,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
