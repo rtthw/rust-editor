@@ -2,6 +2,7 @@
 
 
 use dreg::*;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 
 
@@ -70,6 +71,12 @@ impl Program for App {
             }
             Input::KeyDown(Scancode::RIGHT) => {
                 self.buffer.perform_action(EditAction::MoveRight);
+            }
+            Input::KeyDown(Scancode::L_BRACE) => {
+                self.buffer.perform_action(EditAction::MovePrevWord);
+            }
+            Input::KeyDown(Scancode::R_BRACE) => {
+                self.buffer.perform_action(EditAction::MoveNextWord);
             }
             _ => {}
         }
@@ -289,6 +296,35 @@ impl Buffer {
                     self.cursor.index = 0;
                 }
             }
+            EditAction::MovePrevWord => {
+                let line = self.lines.get(self.cursor.line).unwrap();
+                if self.cursor.index > 0 {
+                    self.cursor.index = line
+                        .content
+                        .unicode_word_indices()
+                        .rev()
+                        .map(|(i, _)| i)
+                        .find(|&i| i < self.cursor.index)
+                        .unwrap_or(0);
+                } else if self.cursor.line > 0 {
+                    self.cursor.line -= 1;
+                    self.cursor.index = self.lines.get(self.cursor.line).unwrap().content.len();
+                }
+            }
+            EditAction::MoveNextWord => {
+                let line = self.lines.get(self.cursor.line).unwrap();
+                if self.cursor.index < line.content.len() {
+                    self.cursor.index = line
+                        .content
+                        .unicode_word_indices()
+                        .map(|(i, word)| i + word.len())
+                        .find(|&i| i > self.cursor.index)
+                        .unwrap_or(line.content.len());
+                } else if self.cursor.line + 1 < self.lines.len() {
+                    self.cursor.line += 1;
+                    self.cursor.index = 0;
+                }
+            }
         }
     }
 }
@@ -317,6 +353,8 @@ pub enum EditAction {
     NewLine,
     MoveLeft,
     MoveRight,
+    MovePrevWord,
+    MoveNextWord,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

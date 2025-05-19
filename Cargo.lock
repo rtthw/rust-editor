@@ -172,6 +172,7 @@ name = "rust-editor"
 version = "0.1.0"
 dependencies = [
  "dreg",
+ "unicode-segmentation",
 ]
 
 [[package]]
