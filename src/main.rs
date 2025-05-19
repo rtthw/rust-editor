@@ -1,5 +1,7 @@
 
 
+// This is a test really long comment that should wrap. The editor definitely should wrap at some point in this comment. Yep. Somewhere either here or maybe somewhere else.
+
 
 use dreg::*;
 use unicode_segmentation::UnicodeSegmentation as _;
@@ -40,30 +42,40 @@ impl Program for App {
         let max_gutter_width = gutter_area.w as usize;
         let max_line_width = buffer_area.w as usize;
 
-        for (index, ((area, gutter), line)) in buffer_area.rows().into_iter()
+        let mut last_line_index = 1;
+        for ((area, gutter), row) in buffer_area.rows().into_iter()
             .zip(gutter_area.rows().into_iter())
-            .zip(self.buffer.lines.iter().take(buffer_area.h as usize))
-            .enumerate()
+            .zip(self.buffer.rows().take(buffer_area.h as usize))
         {
-            frame.buffer.set_stringn(
-                gutter.x,
-                gutter.y,
-                &format!("{}", index + 1),
-                max_gutter_width,
-                Style::default().dim(),
-            );
+            if row.line_index != last_line_index {
+                frame.buffer.set_stringn(
+                    gutter.x,
+                    gutter.y,
+                    &format!("{}", row.line_index + 1),
+                    max_gutter_width,
+                    Style::default().dim(),
+                );
+            }
+            last_line_index = row.line_index;
             frame.buffer.set_stringn(
                 area.x,
                 area.y,
-                &line.content,
+                row.content,
                 max_line_width,
                 Style::default(),
             );
         }
 
+        let cursor_row = self.buffer.rows()
+            .rev()
+            .find(|r| {
+                r.line_index == self.buffer.cursor.line
+                    && (r.index * self.buffer.area.w as usize) < self.buffer.cursor.index
+            })
+            .unwrap();
         frame.cursor = Some((
-            buffer_area.x + self.buffer.cursor.index as u16,
-            buffer_area.y + self.buffer.cursor.line as u16,
+            buffer_area.x + (self.buffer.cursor.index as u16 % self.buffer.area.w),
+            buffer_area.y + cursor_row.num as u16,
         ));
     }
 
@@ -116,6 +128,57 @@ impl Buffer {
             selection: Selection::None,
             area: Area::ZERO, // Set by the render function in `App`.
         }
+    }
+
+    pub fn rows(&self) -> impl DoubleEndedIterator<Item = Row> {
+        let mut num = 0;
+        self.lines.iter()
+            .enumerate()
+            .flat_map(move |(line_index, line)| {
+                if line.content.len() > self.area.w as usize {
+                    let mut rows = Vec::with_capacity(3);
+                    let (first, mut last) = line.content.split_at(self.area.w as usize);
+                    num += 1;
+                    rows.push(Row {
+                        num,
+                        index: 0,
+                        line_index,
+                        content: first,
+                    });
+                    let mut index = 1;
+                    while last.len() > self.area.w as usize {
+                        let (next, then) = line.content.split_at(self.area.w as usize);
+                        last = then;
+                        num += 1;
+                        rows.push(Row {
+                            num,
+                            index,
+                            line_index,
+                            content: next,
+                        });
+                        index += 1;
+                    }
+                    num += 1;
+                    rows.push(Row {
+                        num,
+                        index,
+                        line_index,
+                        content: last,
+                    });
+                    rows.into_iter()
+                } else {
+                    num += 1;
+                    // std::iter::once(line.content.as_str())
+                    vec![
+                        Row {
+                            num,
+                            index: 0,
+                            line_index,
+                            content: line.content.as_str(),
+                        }
+                    ].into_iter()
+                }
+            })
     }
 }
 
@@ -359,7 +422,7 @@ impl Buffer {
                             break;
                         }
                     }
-                    if row_index > 0 {
+                    if row_index + 1 < row_count {
                         self.cursor.index = self.area.w as usize * (row_index + 1);
                     } else {
                         if self.cursor.line > 0 {
@@ -429,6 +492,13 @@ impl Line {
             content: text,
         }
     }
+}
+
+pub struct Row<'a> {
+    pub num: usize,
+    pub index: usize,
+    pub line_index: usize,
+    pub content: &'a str,
 }
 
 pub enum EditAction {
