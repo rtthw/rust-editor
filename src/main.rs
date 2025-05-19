@@ -12,6 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown: false,
         initialized: false,
         buffer: Buffer::new(include_str!("main.rs")),
+        mouse_pos: (0, 0),
     })
 }
 
@@ -21,6 +22,7 @@ struct App {
     shutdown: bool,
     initialized: bool,
     buffer: Buffer,
+    mouse_pos: (u16, u16),
 }
 
 impl Program for App {
@@ -110,6 +112,17 @@ impl Program for App {
             Input::KeyDown(Scancode::A) => {
                 self.buffer.perform_action(EditAction::Insert('a'));
             }
+
+            Input::MouseMove(x, y) => {
+                self.mouse_pos = (x, y);
+            }
+            Input::KeyDown(Scancode::LMB) => {
+                self.buffer.perform_action(EditAction::Click((
+                    self.mouse_pos.0.saturating_sub(self.buffer.area.x),
+                    self.mouse_pos.1.saturating_sub(self.buffer.area.y),
+                )));
+            }
+
             _ => {}
         }
     }
@@ -415,6 +428,26 @@ impl Buffer {
                     }
                 }
             }
+            EditAction::Click((x, y)) => {
+                let mut new_line_index = self.cursor.line;
+                let mut new_index = self.cursor.index;
+
+                if let Some((_, row)) = self.rows().enumerate()
+                    .take(self.area.h as usize)
+                    .find(|(i, _)| *i == y as usize)
+                {
+                    new_line_index = row.line_index;
+                    let addendum = if x as usize > row.content.len() {
+                        row.content.len()
+                    } else {
+                        x as usize
+                    };
+                    new_index = (row.index * self.area.w as usize) + addendum;
+                }
+
+                self.cursor.line = new_line_index;
+                self.cursor.index = new_index;
+            }
             EditAction::MoveLeft => {
                 let line = self.lines.get(self.cursor.line).unwrap();
                 if self.cursor.index > 0 {
@@ -599,6 +632,7 @@ pub enum EditAction {
     NewLine,
     Backspace,
     Delete,
+    Click((u16, u16)),
     MoveLeft,
     MoveRight,
     MoveUp,
