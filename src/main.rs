@@ -33,22 +33,28 @@ impl Program for App {
         }
 
         let (_side_area, buffer_area) = frame.area().hsplit_portion(0.2);
+        let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);
 
-        let max_line_width = buffer_area.w.saturating_sub(5) as usize;
-        for (index, (row_area, line)) in buffer_area.rows().into_iter()
+        self.buffer.area = buffer_area;
+
+        let max_gutter_width = gutter_area.w as usize;
+        let max_line_width = buffer_area.w as usize;
+
+        for (index, ((area, gutter), line)) in buffer_area.rows().into_iter()
+            .zip(gutter_area.rows().into_iter())
             .zip(self.buffer.lines.iter().take(buffer_area.h as usize))
             .enumerate()
         {
             frame.buffer.set_stringn(
-                row_area.x,
-                row_area.y,
+                gutter.x,
+                gutter.y,
                 &format!("{}", index + 1),
-                5,
+                max_gutter_width,
                 Style::default().dim(),
             );
             frame.buffer.set_stringn(
-                row_area.x + 5,
-                row_area.y,
+                area.x,
+                area.y,
                 &line.content,
                 max_line_width,
                 Style::default(),
@@ -56,7 +62,7 @@ impl Program for App {
         }
 
         frame.cursor = Some((
-            buffer_area.x + 5 + self.buffer.cursor.index as u16, // 5 is the gutter's width.
+            buffer_area.x + self.buffer.cursor.index as u16,
             buffer_area.y + self.buffer.cursor.line as u16,
         ));
     }
@@ -71,6 +77,12 @@ impl Program for App {
             }
             Input::KeyDown(Scancode::RIGHT) => {
                 self.buffer.perform_action(EditAction::MoveRight);
+            }
+            Input::KeyDown(Scancode::UP) => {
+                self.buffer.perform_action(EditAction::MoveUp);
+            }
+            Input::KeyDown(Scancode::DOWN) => {
+                self.buffer.perform_action(EditAction::MoveDown);
             }
             Input::KeyDown(Scancode::L_BRACE) => {
                 self.buffer.perform_action(EditAction::MovePrevWord);
@@ -89,6 +101,7 @@ struct Buffer {
     lines: Vec<Line>,
     cursor: Cursor,
     selection: Selection,
+    area: Area,
 }
 
 impl Buffer {
@@ -101,6 +114,7 @@ impl Buffer {
             lines,
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
+            area: Area::ZERO, // Set by the render function in `App`.
         }
     }
 }
@@ -296,6 +310,76 @@ impl Buffer {
                     self.cursor.index = 0;
                 }
             }
+            EditAction::MoveUp => {
+                let line = self.lines.get(self.cursor.line).unwrap();
+                if line.content.len() > self.area.w as usize {
+                    // FIXME: This is likely a horribly inefficient way to do this.
+
+                    let row_count = (line.content.len() as f32 / self.area.w as f32)
+                        .ceil() as usize;
+                    let mut row_index = 0;
+                    for i in 0..row_count {
+                        if (i * self.area.w as usize) < self.cursor.index {
+                            row_index = i;
+                        } else {
+                            break;
+                        }
+                    }
+                    if row_index > 0 {
+                        self.cursor.index = self.area.w as usize * (row_index - 1);
+                    } else {
+                        if self.cursor.line > 0 {
+                            self.cursor.line -= 1;
+                            let line = self.lines.get(self.cursor.line).unwrap();
+                            if line.content.len() < self.cursor.index {
+                                self.cursor.index = line.content.len();
+                            }
+                        }
+                    }
+                } else {
+                    if self.cursor.line > 0 {
+                        self.cursor.line -= 1;
+                        let line = self.lines.get(self.cursor.line).unwrap();
+                        if line.content.len() < self.cursor.index {
+                            self.cursor.index = line.content.len();
+                        }
+                    }
+                }
+            }
+            EditAction::MoveDown => {
+                let line = self.lines.get(self.cursor.line).unwrap();
+                if line.content.len() > self.area.w as usize {
+                    let row_count = (line.content.len() as f32 / self.area.w as f32)
+                        .ceil() as usize;
+                    let mut row_index = 0;
+                    for i in 0..row_count {
+                        if (i * self.area.w as usize) < self.cursor.index {
+                            row_index = i;
+                        } else {
+                            break;
+                        }
+                    }
+                    if row_index > 0 {
+                        self.cursor.index = self.area.w as usize * (row_index + 1);
+                    } else {
+                        if self.cursor.line > 0 {
+                            self.cursor.line += 1;
+                            let line = self.lines.get(self.cursor.line).unwrap();
+                            if line.content.len() < self.cursor.index {
+                                self.cursor.index = line.content.len();
+                            }
+                        }
+                    }
+                } else {
+                    if self.cursor.line + 1 < self.lines.len() {
+                        self.cursor.line += 1;
+                        let line = self.lines.get(self.cursor.line).unwrap();
+                        if line.content.len() < self.cursor.index {
+                            self.cursor.index = line.content.len();
+                        }
+                    }
+                }
+            }
             EditAction::MovePrevWord => {
                 let line = self.lines.get(self.cursor.line).unwrap();
                 if self.cursor.index > 0 {
@@ -353,6 +437,8 @@ pub enum EditAction {
     NewLine,
     MoveLeft,
     MoveRight,
+    MoveUp,
+    MoveDown,
     MovePrevWord,
     MoveNextWord,
 }
