@@ -101,6 +101,15 @@ impl Program for App {
             Input::KeyDown(Scancode::R_BRACE) => {
                 self.buffer.perform_action(EditAction::MoveNextWord);
             }
+            Input::KeyDown(Scancode::BACKSPACE) => {
+                self.buffer.perform_action(EditAction::Backspace);
+            }
+            Input::KeyDown(Scancode::DELETE) => {
+                self.buffer.perform_action(EditAction::Delete);
+            }
+            Input::KeyDown(Scancode::A) => {
+                self.buffer.perform_action(EditAction::Insert('a'));
+            }
             _ => {}
         }
     }
@@ -331,6 +340,15 @@ impl Buffer {
 
     pub fn perform_action(&mut self, action: EditAction) {
         match action {
+            EditAction::Insert(ch) => {
+                if ch == '\n' {
+                    self.perform_action(EditAction::NewLine);
+                } else {
+                    let mut str_buf = [0u8; 8];
+                    let str_ref = ch.encode_utf8(&mut str_buf);
+                    self.insert_string(str_ref);
+                }
+            }
             EditAction::ClearSelection => {
                 self.selection = Selection::None;
             }
@@ -339,6 +357,63 @@ impl Buffer {
             }
             EditAction::NewLine => {
                 self.insert_string("\n");
+            }
+            EditAction::Backspace => {
+                if self.delete_selection() {
+                    // Deleted selection.
+                } else {
+                    let end = self.cursor;
+
+                    if self.cursor.index > 0 {
+                        // Move cursor to previous character index.
+                        self.cursor.index = {
+                            self.lines[self.cursor.line].content[..self.cursor.index]
+                                .char_indices()
+                                .next_back()
+                                .map_or(0, |(i, _)| i)
+                        };
+                    } else if self.cursor.line > 0 {
+                        // Move cursor to previous line.
+                        self.cursor.line -= 1;
+                        self.cursor.index = self.lines[self.cursor.line].content.len();
+                    }
+
+                    if self.cursor != end {
+                        self.delete_range(self.cursor, end);
+                    }
+                }
+            }
+            EditAction::Delete => {
+                if self.delete_selection() {
+                    // Deleted selection.
+                } else {
+                    let mut start = self.cursor;
+                    let mut end = self.cursor;
+
+                    if start.index < self.lines[start.line].content.len() {
+                        let line = &self.lines[start.line];
+
+                        let range_opt = line
+                            .content
+                            .grapheme_indices(true)
+                            .take_while(|(i, _)| *i <= start.index)
+                            .last()
+                            .map(|(i, c)| i..(i + c.len()));
+
+                        if let Some(range) = range_opt {
+                            start.index = range.start;
+                            end.index = range.end;
+                        }
+                    } else if start.line + 1 < self.lines.len() {
+                        end.line += 1;
+                        end.index = 0;
+                    }
+
+                    if start != end {
+                        self.cursor = start;
+                        self.delete_range(start, end);
+                    }
+                }
             }
             EditAction::MoveLeft => {
                 let line = self.lines.get(self.cursor.line).unwrap();
@@ -441,7 +516,7 @@ impl Buffer {
                         self.cursor.index = ((row_index + 1) * self.area.w as usize)
                             + row_offset;
                     } else {
-                        if self.cursor.line > 0 {
+                        if self.cursor.line + 1 < self.lines.len() {
                             self.cursor.line += 1;
                             let line = self.lines.get(self.cursor.line).unwrap();
                             if line.content.len() < self.cursor.index {
@@ -518,9 +593,12 @@ pub struct Row<'a> {
 }
 
 pub enum EditAction {
+    Insert(char),
     ClearSelection,
     DeleteSelection,
     NewLine,
+    Backspace,
+    Delete,
     MoveLeft,
     MoveRight,
     MoveUp,
