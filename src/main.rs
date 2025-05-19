@@ -2,7 +2,6 @@
 
 // This is a test really long comment that should wrap. The editor definitely should wrap at some point in this comment. Yep. Somewhere either here or maybe somewhere else.
 
-
 use dreg::*;
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -42,10 +41,12 @@ impl Program for App {
         let max_gutter_width = gutter_area.w as usize;
         let max_line_width = buffer_area.w as usize;
 
+        let mut cursor_row = 0;
         let mut last_line_index = 1;
-        for ((area, gutter), row) in buffer_area.rows().into_iter()
+        for (index, ((area, gutter), row)) in buffer_area.rows().into_iter()
             .zip(gutter_area.rows().into_iter())
             .zip(self.buffer.rows().take(buffer_area.h as usize))
+            .enumerate()
         {
             if row.line_index != last_line_index {
                 frame.buffer.set_stringn(
@@ -64,18 +65,16 @@ impl Program for App {
                 max_line_width,
                 Style::default(),
             );
+            if row.line_index == self.buffer.cursor.line {
+                if (row.index * self.buffer.area.w as usize) <= self.buffer.cursor.index {
+                    cursor_row = index;
+                }
+            }
         }
 
-        let cursor_row = self.buffer.rows()
-            .rev()
-            .find(|r| {
-                r.line_index == self.buffer.cursor.line
-                    && (r.index * self.buffer.area.w as usize) < self.buffer.cursor.index
-            })
-            .unwrap();
         frame.cursor = Some((
             buffer_area.x + (self.buffer.cursor.index as u16 % self.buffer.area.w),
-            buffer_area.y + cursor_row.num as u16,
+            buffer_area.y + cursor_row as u16,
         ));
     }
 
@@ -382,14 +381,16 @@ impl Buffer {
                         .ceil() as usize;
                     let mut row_index = 0;
                     for i in 0..row_count {
-                        if (i * self.area.w as usize) < self.cursor.index {
+                        if (i * self.area.w as usize) <= self.cursor.index {
                             row_index = i;
                         } else {
                             break;
                         }
                     }
                     if row_index > 0 {
-                        self.cursor.index = self.area.w as usize * (row_index - 1);
+                        let row_offset = self.cursor.index % self.area.w as usize;
+                        self.cursor.index = ((row_index - 1) * self.area.w as usize)
+                            + row_offset;
                     } else {
                         if self.cursor.line > 0 {
                             self.cursor.line -= 1;
@@ -403,8 +404,21 @@ impl Buffer {
                     if self.cursor.line > 0 {
                         self.cursor.line -= 1;
                         let line = self.lines.get(self.cursor.line).unwrap();
-                        if line.content.len() < self.cursor.index {
-                            self.cursor.index = line.content.len();
+                        let row_count = (line.content.len() as f32 / self.area.w as f32)
+                            .ceil() as usize;
+                        if row_count > 1 {
+                            let row_len = line.content.len() % self.area.w as usize;
+                            let row_offset = self.cursor.index;
+                            if row_len < row_offset {
+                                self.cursor.index = line.content.len();
+                            } else {
+                                self.cursor.index = ((row_count - 1) * self.area.w as usize)
+                                    + row_offset;
+                            }
+                        } else {
+                            if line.content.len() < self.cursor.index {
+                                self.cursor.index = line.content.len();
+                            }
                         }
                     }
                 }
@@ -416,14 +430,16 @@ impl Buffer {
                         .ceil() as usize;
                     let mut row_index = 0;
                     for i in 0..row_count {
-                        if (i * self.area.w as usize) < self.cursor.index {
+                        if (i * self.area.w as usize) <= self.cursor.index {
                             row_index = i;
                         } else {
                             break;
                         }
                     }
                     if row_index + 1 < row_count {
-                        self.cursor.index = self.area.w as usize * (row_index + 1);
+                        let row_offset = self.cursor.index % self.area.w as usize;
+                        self.cursor.index = ((row_index + 1) * self.area.w as usize)
+                            + row_offset;
                     } else {
                         if self.cursor.line > 0 {
                             self.cursor.line += 1;
