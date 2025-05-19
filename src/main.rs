@@ -8,6 +8,7 @@ use dreg::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     Terminal::new().run(App {
         shutdown: false,
+        initialized: false,
         buffer: Buffer::new(include_str!("main.rs")),
     })
 }
@@ -16,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 struct App {
     shutdown: bool,
+    initialized: bool,
     buffer: Buffer,
 }
 
@@ -25,33 +27,49 @@ impl Program for App {
             frame.should_exit = true;
             return;
         }
+        if !self.initialized {
+            frame.commands.push(Command::SetCursorStyle(CursorStyle::BlinkingBar));
+        }
 
-        let max_line_width = frame.area().w.saturating_sub(5) as usize;
-        for (index, (area, line)) in frame.area().rows().into_iter()
-            .zip(self.buffer.lines.iter().take(frame.area().h as usize))
+        let (_side_area, buffer_area) = frame.area().hsplit_portion(0.2);
+
+        let max_line_width = buffer_area.w.saturating_sub(5) as usize;
+        for (index, (row_area, line)) in buffer_area.rows().into_iter()
+            .zip(self.buffer.lines.iter().take(buffer_area.h as usize))
             .enumerate()
         {
             frame.buffer.set_stringn(
-                area.x,
-                area.y,
+                row_area.x,
+                row_area.y,
                 &format!("{}", index + 1),
                 5,
                 Style::default().dim(),
             );
             frame.buffer.set_stringn(
-                area.x + 5,
-                area.y,
+                row_area.x + 5,
+                row_area.y,
                 &line.content,
                 max_line_width,
                 Style::default(),
             );
         }
+
+        frame.cursor = Some((
+            buffer_area.x + 5 + self.buffer.cursor.index as u16, // 5 is the gutter's width.
+            buffer_area.y + self.buffer.cursor.line as u16,
+        ));
     }
 
     fn input(&mut self, input: Input) {
         match input {
             Input::KeyDown(Scancode::Q) => {
                 self.shutdown = true;
+            }
+            Input::KeyDown(Scancode::LEFT) => {
+                self.buffer.perform_action(EditAction::MoveLeft);
+            }
+            Input::KeyDown(Scancode::RIGHT) => {
+                self.buffer.perform_action(EditAction::MoveRight);
             }
             _ => {}
         }
