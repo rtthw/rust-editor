@@ -6,8 +6,9 @@ use dreg::*;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    TerminalPlatform::new().run(App {
+    Terminal::new().run(App {
         shutdown: false,
+        buffer: Buffer::new(include_str!("main.rs")),
     })
 }
 
@@ -15,6 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 struct App {
     shutdown: bool,
+    buffer: Buffer,
 }
 
 impl Program for App {
@@ -24,16 +26,26 @@ impl Program for App {
             return;
         }
 
-        Rectangle {
-            area: frame.area(),
-            fg: Color::from_rgb(89, 89, 109),
-            style: RectangleStyle::Round,
-        }.render(frame);
-
-        let text_area = frame.area().inner_centered(13, 1);
-        Text::new("Hello, World!")
-            .with_position(text_area.x, text_area.y)
-            .render(frame);
+        let max_line_width = frame.area().w.saturating_sub(5) as usize;
+        for (index, (area, line)) in frame.area().rows().into_iter()
+            .zip(self.buffer.lines.iter().take(frame.area().h as usize))
+            .enumerate()
+        {
+            frame.buffer.set_stringn(
+                area.x,
+                area.y,
+                &format!("{}", index + 1),
+                5,
+                Style::default().dim(),
+            );
+            frame.buffer.set_stringn(
+                area.x + 5,
+                area.y,
+                &line.content,
+                max_line_width,
+                Style::default(),
+            );
+        }
     }
 
     fn input(&mut self, input: Input) {
@@ -52,6 +64,20 @@ struct Buffer {
     lines: Vec<Line>,
     cursor: Cursor,
     selection: Selection,
+}
+
+impl Buffer {
+    pub fn new(content: &str) -> Self {
+        let lines = content.lines()
+            .map(|s| Line { content: s.to_string() })
+            .collect();
+
+        Self {
+            lines,
+            cursor: Cursor { line: 0, index: 0 },
+            selection: Selection::None,
+        }
+    }
 }
 
 impl Buffer {
