@@ -47,7 +47,7 @@ impl Program for App {
         let mut last_line_index = 1;
         for (index, ((area, gutter), row)) in buffer_area.rows().into_iter()
             .zip(gutter_area.rows().into_iter())
-            .zip(self.buffer.rows().take(buffer_area.h as usize))
+            .zip(self.buffer.visible_rows())
             .enumerate()
         {
             if row.line_index != last_line_index {
@@ -133,6 +133,12 @@ impl Program for App {
                     )));
                 }
             }
+            Input::KeyDown(Scancode::SCROLLUP) => {
+                self.buffer.perform_action(EditAction::ScrollUp);
+            }
+            Input::KeyDown(Scancode::SCROLLDOWN) => {
+                self.buffer.perform_action(EditAction::ScrollDown);
+            }
 
             Input::KeyDown(other) => {
                 if let Some(ch) = util::scancode_to_char(other) {
@@ -164,6 +170,7 @@ struct Buffer {
     cursor: Cursor,
     selection: Selection,
     area: Area,
+    scroll_y_offset: u16,
 }
 
 impl Buffer {
@@ -177,6 +184,7 @@ impl Buffer {
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
             area: Area::ZERO, // Set by the render function in `App`.
+            scroll_y_offset: 0,
         }
     }
 
@@ -229,6 +237,12 @@ impl Buffer {
                     ].into_iter()
                 }
             })
+    }
+
+    pub fn visible_rows(&self) -> impl Iterator<Item = Row> {
+        self.rows()
+            .skip(self.scroll_y_offset as usize)
+            .take(self.area.h as usize)
     }
 }
 
@@ -461,8 +475,8 @@ impl Buffer {
                 let mut new_line_index = self.cursor.line;
                 let mut new_index = self.cursor.index;
 
-                if let Some((_, row)) = self.rows().enumerate()
-                    .take(self.area.h as usize)
+                if let Some((_, row)) = self.visible_rows()
+                    .enumerate()
                     .find(|(i, _)| *i == y as usize)
                 {
                     new_line_index = row.line_index;
@@ -625,6 +639,13 @@ impl Buffer {
                     self.cursor.index = 0;
                 }
             }
+            EditAction::ScrollUp => {
+                self.scroll_y_offset = self.scroll_y_offset.saturating_sub(1);
+            }
+            EditAction::ScrollDown => {
+                self.scroll_y_offset = self.scroll_y_offset.saturating_add(1)
+                    .min(self.lines.len() as u16);
+            }
         }
     }
 }
@@ -668,6 +689,8 @@ pub enum EditAction {
     MoveDown,
     MovePrevWord,
     MoveNextWord,
+    ScrollUp,
+    ScrollDown,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
