@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown: false,
         initialized: false,
         buffer: Buffer::new(include_str!("main.rs")),
-        mouse_pos: (0, 0),
+        input_context: InputContext::default(),
     })
 }
 
@@ -22,7 +22,7 @@ struct App {
     shutdown: bool,
     initialized: bool,
     buffer: Buffer,
-    mouse_pos: (u16, u16),
+    input_context: InputContext,
 }
 
 impl Program for App {
@@ -78,18 +78,27 @@ impl Program for App {
             buffer_area.x + (self.buffer.cursor.index as u16 % self.buffer.area.w),
             buffer_area.y + cursor_row as u16,
         ));
+
+        self.input_context.end_frame();
     }
 
     fn input(&mut self, input: Input) {
+        self.input_context.handle_input(input);
+
         match input {
-            Input::KeyDown(Scancode::Q) => {
-                self.shutdown = true;
-            }
             Input::KeyDown(Scancode::LEFT) => {
-                self.buffer.perform_action(EditAction::MoveLeft);
+                if self.input_context.is_key_down(&Scancode::L_CTRL) {
+                    self.buffer.perform_action(EditAction::MovePrevWord);
+                } else {
+                    self.buffer.perform_action(EditAction::MoveLeft);
+                }
             }
             Input::KeyDown(Scancode::RIGHT) => {
-                self.buffer.perform_action(EditAction::MoveRight);
+                if self.input_context.is_key_down(&Scancode::L_CTRL) {
+                    self.buffer.perform_action(EditAction::MoveNextWord);
+                } else {
+                    self.buffer.perform_action(EditAction::MoveRight);
+                }
             }
             Input::KeyDown(Scancode::UP) => {
                 self.buffer.perform_action(EditAction::MoveUp);
@@ -97,30 +106,50 @@ impl Program for App {
             Input::KeyDown(Scancode::DOWN) => {
                 self.buffer.perform_action(EditAction::MoveDown);
             }
-            Input::KeyDown(Scancode::L_BRACE) => {
-                self.buffer.perform_action(EditAction::MovePrevWord);
-            }
-            Input::KeyDown(Scancode::R_BRACE) => {
-                self.buffer.perform_action(EditAction::MoveNextWord);
-            }
+
             Input::KeyDown(Scancode::BACKSPACE) => {
                 self.buffer.perform_action(EditAction::Backspace);
             }
             Input::KeyDown(Scancode::DELETE) => {
                 self.buffer.perform_action(EditAction::Delete);
             }
-            Input::KeyDown(Scancode::A) => {
-                self.buffer.perform_action(EditAction::Insert('a'));
+
+            Input::KeyDown(Scancode::SPACE) => {
+                self.buffer.perform_action(EditAction::Insert(' '));
+            }
+            // TODO: Indentation.
+            Input::KeyDown(Scancode::TAB) => {
+                self.buffer.perform_action(EditAction::Insert('\t'));
+            }
+            Input::KeyDown(Scancode::ENTER) => {
+                self.buffer.perform_action(EditAction::NewLine);
             }
 
-            Input::MouseMove(x, y) => {
-                self.mouse_pos = (x, y);
-            }
             Input::KeyDown(Scancode::LMB) => {
-                self.buffer.perform_action(EditAction::Click((
-                    self.mouse_pos.0.saturating_sub(self.buffer.area.x),
-                    self.mouse_pos.1.saturating_sub(self.buffer.area.y),
-                )));
+                if let Some((mouse_x, mouse_y)) = self.input_context.mouse_pos() {
+                    self.buffer.perform_action(EditAction::Click((
+                        mouse_x.saturating_sub(self.buffer.area.x),
+                        mouse_y.saturating_sub(self.buffer.area.y),
+                    )));
+                }
+            }
+
+            Input::KeyDown(other) => {
+                if let Some(ch) = util::scancode_to_char(other) {
+                    if self.input_context.is_key_down(&Scancode::L_ALT) {
+                        match ch {
+                            'q' => {
+                                self.shutdown = true;
+                            }
+                            _ => {}
+                        }
+                    } else if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+                        let ch = util::shifted_char(ch);
+                        self.buffer.perform_action(EditAction::Insert(ch));
+                    } else {
+                        self.buffer.perform_action(EditAction::Insert(ch));
+                    }
+                }
             }
 
             _ => {}
@@ -652,4 +681,93 @@ pub enum Selection {
     Normal(Cursor),
     Line(Cursor),
     Word(Cursor),
+}
+
+
+
+mod util {
+    use dreg::Scancode;
+
+    pub fn scancode_to_char(sc: Scancode) -> Option<char> {
+        Some(match sc {
+            Scancode::K_1 => '1',
+            Scancode::K_2 => '2',
+            Scancode::K_3 => '3',
+            Scancode::K_4 => '4',
+            Scancode::K_5 => '5',
+            Scancode::K_6 => '6',
+            Scancode::K_7 => '7',
+            Scancode::K_8 => '8',
+            Scancode::K_9 => '9',
+            Scancode::K_0 => '0',
+
+            Scancode::MINUS => '-',
+            Scancode::EQUAL => '=',
+            Scancode::L_BRACE => '[',
+            Scancode::R_BRACE => ']',
+            Scancode::BACKSLASH => '\\',
+            Scancode::SEMICOLON => ';',
+            Scancode::APOSTROPHE => '\'',
+            Scancode::COMMA => ',',
+            Scancode::DOT => '.',
+            Scancode::SLASH => '/',
+
+            Scancode::A => 'a',
+            Scancode::B => 'b',
+            Scancode::C => 'c',
+            Scancode::D => 'd',
+            Scancode::E => 'e',
+            Scancode::F => 'f',
+            Scancode::G => 'g',
+            Scancode::H => 'h',
+            Scancode::I => 'i',
+            Scancode::J => 'j',
+            Scancode::K => 'k',
+            Scancode::L => 'l',
+            Scancode::M => 'm',
+            Scancode::N => 'n',
+            Scancode::O => 'o',
+            Scancode::P => 'p',
+            Scancode::Q => 'q',
+            Scancode::R => 'r',
+            Scancode::S => 's',
+            Scancode::T => 't',
+            Scancode::U => 'u',
+            Scancode::V => 'v',
+            Scancode::W => 'w',
+            Scancode::X => 'x',
+            Scancode::Y => 'y',
+            Scancode::Z => 'z',
+
+            _ => None?,
+        })
+    }
+
+    pub fn shifted_char(ch: char) -> char {
+        match ch {
+            '1' => '!',
+            '2' => '@',
+            '3' => '#',
+            '4' => '$',
+            '5' => '%',
+            '6' => '^',
+            '7' => '&',
+            '8' => '8',
+            '9' => '(',
+            '0' => ')',
+
+            '-' => '_',
+            '=' => '+',
+            '[' => '{',
+            ']' => '}',
+            '\\' => '|',
+            ';' => ':',
+            '\'' => '\"',
+            ',' => '<',
+            '.' => '>',
+            '/' => '?',
+
+            other => other.to_ascii_uppercase(),
+        }
+    }
 }
