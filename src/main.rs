@@ -184,7 +184,75 @@ impl Program for App {
 
 
 
-struct Buffer {
+pub struct BufferSet {
+    buffers: Vec<Buffer>,
+    current: usize,
+}
+
+impl BufferSet {
+    pub fn current_buffer(&self) -> &Buffer {
+        assert!(self.count() > 0); // Cannot close the only buffer.
+        &self.buffers[self.current]
+    }
+
+    pub fn current_buffer_mut(&mut self) -> &mut Buffer {
+        assert!(self.count() > 0); // Cannot close the only buffer.
+        &mut self.buffers[self.current]
+    }
+
+    #[inline]
+    pub fn count(&self) -> usize {
+        self.buffers.len()
+    }
+
+    #[inline]
+    pub fn current_is_first(&self) -> bool {
+        self.current == 0
+    }
+
+    #[inline]
+    pub fn current_is_last(&self) -> bool {
+        self.count() == self.current + 1
+    }
+}
+
+impl BufferSet {
+    pub fn goto_next(&mut self, wrap_at_end: bool) -> bool {
+        if self.count() == 1 {
+            false
+        } else if self.current_is_last() {
+            if !wrap_at_end {
+                false
+            } else {
+                self.current = 0;
+                true
+            }
+        } else {
+            self.current += 1;
+            true
+        }
+    }
+
+    pub fn goto_previous(&mut self, wrap_at_start: bool) -> bool {
+        if self.count() == 1 {
+            false
+        } else if self.current_is_first() {
+            if !wrap_at_start {
+                false
+            } else {
+                self.current = self.count() - 1;
+                true
+            }
+        } else {
+            self.current -= 1;
+            true
+        }
+    }
+}
+
+
+
+pub struct Buffer {
     lines: Vec<Line>,
     cursor: Cursor,
     selection: Selection,
