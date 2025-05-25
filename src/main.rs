@@ -1,16 +1,28 @@
 
 
-// This is a test really long comment that should wrap. The editor definitely should wrap at some point in this comment. Yep. Somewhere either here or maybe somewhere else.
+
+mod workspace;
+
+use std::path::PathBuf;
 
 use dreg::*;
 use unicode_segmentation::UnicodeSegmentation as _;
 
+use workspace::*;
+
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (workspace_dir, failure) = find_workspace();
+    if failure {
+        println!("{:?}", workspace_dir);
+        return Err("Could not find a workspace in this directory".into());
+    }
+
     Terminal::new().run(App {
         shutdown: false,
         initialized: false,
+        workspace_dir,
         buffer: Buffer::new(include_str!("main.rs")),
         input_context: InputContext::default(),
     })
@@ -21,6 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct App {
     shutdown: bool,
     initialized: bool,
+
+    workspace_dir: PathBuf,
     buffer: Buffer,
     input_context: InputContext,
 }
@@ -35,7 +49,16 @@ impl Program for App {
             frame.commands.push(Command::SetCursorStyle(CursorStyle::BlinkingBar));
         }
 
-        let (_side_area, buffer_area) = frame.area().hsplit_portion(0.2);
+        let (side_area, buffer_area) = frame.area().hsplit_portion(0.2);
+
+        frame.buffer.set_stringn(
+            side_area.x,
+            side_area.y,
+            self.workspace_dir.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
+            side_area.w as _,
+            Style::default().dim(),
+        );
+
         let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);
 
         self.buffer.area = buffer_area;
