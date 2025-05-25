@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown: false,
         initialized: false,
         workspace_info,
-        buffers: BufferSet::new(include_str!("main.rs")),
+        buffers: BufferSet::new("src/main.rs", include_str!("main.rs")),
         input_context: InputContext::default(),
     })
 }
@@ -45,6 +45,8 @@ impl Program for App {
             frame.commands.push(Command::SetCursorStyle(CursorStyle::BlinkingBar));
         }
 
+        let buffer = self.buffers.current_buffer_mut();
+
         let (side_area, buffer_area) = frame.area().hsplit_portion(0.2);
 
         frame.buffer.set_stringn(
@@ -54,9 +56,15 @@ impl Program for App {
             side_area.w as _,
             Style::default().dim(),
         );
+        frame.buffer.set_stringn(
+            side_area.x,
+            side_area.y + 1,
+            &buffer.name,
+            side_area.w as _,
+            Style::default(),
+        );
 
         let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);
-        let buffer = self.buffers.current_buffer_mut();
 
         buffer.area = buffer_area;
 
@@ -163,10 +171,16 @@ impl Program for App {
 
             Input::KeyDown(other) => {
                 if let Some(ch) = util::scancode_to_char(other) {
-                    if self.input_context.is_key_down(&Scancode::L_ALT) {
+                    if self.input_context.is_key_down(&Scancode::L_CTRL) {
                         match ch {
                             'q' => {
                                 self.shutdown = true;
+                            }
+                            '[' => {
+                                self.buffers.goto_previous(true);
+                            }
+                            ']' => {
+                                self.buffers.goto_next(true);
                             }
                             _ => {}
                         }
@@ -192,11 +206,12 @@ pub struct BufferSet {
 }
 
 impl BufferSet {
-    pub fn new(initial_buffer_content: &str) -> Self {
-        let current_buffer = Buffer::new(initial_buffer_content);
+    pub fn new(initial_buffer_name: &str, initial_buffer_content: &str) -> Self {
+        let scratch_buffer = Buffer::new("SCRATCH", "");
+        let current_buffer = Buffer::new(initial_buffer_name, initial_buffer_content);
 
         Self {
-            buffers: vec![current_buffer],
+            buffers: vec![scratch_buffer, current_buffer],
             current: 0,
         }
     }
@@ -266,6 +281,7 @@ impl BufferSet {
 
 
 pub struct Buffer {
+    name: String,
     lines: Vec<Line>,
     cursor: Cursor,
     selection: Selection,
@@ -274,12 +290,13 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn new(content: &str) -> Self {
+    pub fn new(name: impl Into<String>, content: &str) -> Self {
         let lines = content.lines()
             .map(|s| Line { content: s.to_string() })
             .collect();
 
         Self {
+            name: name.into(),
             lines,
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
