@@ -310,9 +310,12 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn new(name: impl Into<String>, content: &str) -> Self {
-        let lines = content.lines()
+        let mut lines: Vec<Line> = content.lines()
             .map(|s| Line { content: s.to_string() })
             .collect();
+        if lines.len() < 1 {
+            lines.push(Line { content: "".to_string() });
+        }
 
         Self {
             name: name.into(),
