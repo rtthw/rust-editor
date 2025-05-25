@@ -152,6 +152,9 @@ impl Program for App {
 
         match input {
             Input::KeyDown(Scancode::LEFT) => {
+                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+                    self.buffers.current_buffer_mut().start_or_continue_selection();
+                }
                 if self.input_context.is_key_down(&Scancode::L_CTRL) {
                     self.buffers.current_buffer_mut().perform_action(EditAction::MovePrevWord);
                 } else {
@@ -159,6 +162,9 @@ impl Program for App {
                 }
             }
             Input::KeyDown(Scancode::RIGHT) => {
+                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+                    self.buffers.current_buffer_mut().start_or_continue_selection();
+                }
                 if self.input_context.is_key_down(&Scancode::L_CTRL) {
                     self.buffers.current_buffer_mut().perform_action(EditAction::MoveNextWord);
                 } else {
@@ -166,11 +172,14 @@ impl Program for App {
                 }
             }
             Input::KeyDown(Scancode::UP) => {
+                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+                    self.buffers.current_buffer_mut().start_or_continue_selection();
+                }
                 self.buffers.current_buffer_mut().perform_action(EditAction::MoveUp);
             }
             Input::KeyDown(Scancode::DOWN) => {
                 if self.input_context.is_key_down(&Scancode::L_SHIFT) {
-                    self.buffers.current_buffer_mut().start_selection();
+                    self.buffers.current_buffer_mut().start_or_continue_selection();
                 }
                 self.buffers.current_buffer_mut().perform_action(EditAction::MoveDown);
             }
@@ -472,8 +481,10 @@ impl Buffer {
         self.cursor = next_cursor;
     }
 
-    pub fn start_selection(&mut self) {
-        self.selection = Selection::Normal(self.cursor);
+    pub fn start_or_continue_selection(&mut self) {
+        if let Selection::None = &self.selection {
+            self.selection = Selection::Normal(self.cursor);
+        }
     }
 
     pub fn selection_bounds(&self) -> Option<(Cursor, Cursor)> {
