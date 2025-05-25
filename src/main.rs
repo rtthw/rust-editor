@@ -73,6 +73,7 @@ impl Program for App {
 
         let mut cursor_row = 0;
         let mut last_line_index = 1;
+        let selection = buffer.selection_bounds();
         for (index, ((area, gutter), row)) in buffer_area.rows().into_iter()
             .zip(gutter_area.rows().into_iter())
             .zip(buffer.visible_rows())
@@ -88,13 +89,28 @@ impl Program for App {
                 );
             }
             last_line_index = row.line_index;
-            frame.buffer.set_stringn(
-                area.x,
-                area.y,
-                row.content,
-                max_line_width,
-                Style::default(),
-            );
+            let mut already_rendered = false;
+            if let Some((start_cursor, end_cursor)) = &selection {
+                if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
+                    frame.buffer.set_stringn(
+                        area.x,
+                        area.y,
+                        row.content,
+                        max_line_width,
+                        Style::default().reversed(),
+                    );
+                    already_rendered = true;
+                }
+            }
+            if !already_rendered {
+                frame.buffer.set_stringn(
+                    area.x,
+                    area.y,
+                    row.content,
+                    max_line_width,
+                    Style::default(),
+                );
+            }
             if row.line_index == buffer.cursor.line {
                 if (row.index * buffer.area.w as usize) <= buffer.cursor.index {
                     cursor_row = index;
@@ -132,6 +148,9 @@ impl Program for App {
                 self.buffers.current_buffer_mut().perform_action(EditAction::MoveUp);
             }
             Input::KeyDown(Scancode::DOWN) => {
+                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+                    self.buffers.current_buffer_mut().start_selection();
+                }
                 self.buffers.current_buffer_mut().perform_action(EditAction::MoveDown);
             }
 
@@ -427,6 +446,10 @@ impl Buffer {
         self.delete_selection();
         let next_cursor = self.insert_at(self.cursor, content);
         self.cursor = next_cursor;
+    }
+
+    pub fn start_selection(&mut self) {
+        self.selection = Selection::Normal(self.cursor);
     }
 
     pub fn selection_bounds(&self) -> Option<(Cursor, Cursor)> {
