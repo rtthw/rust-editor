@@ -88,32 +88,53 @@ impl Program for App {
                     Style::default().dim(),
                 );
             }
+            frame.buffer.set_stringn(
+                area.x,
+                area.y,
+                row.content,
+                max_line_width,
+                Style::default(),
+            );
             last_line_index = row.line_index;
-            let mut already_rendered = false;
-            if let Some((start_cursor, end_cursor)) = &selection {
-                if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
-                    frame.buffer.set_stringn(
-                        area.x,
-                        area.y,
-                        row.content,
-                        max_line_width,
-                        Style::default().reversed(),
-                    );
-                    already_rendered = true;
-                }
-            }
-            if !already_rendered {
-                frame.buffer.set_stringn(
-                    area.x,
-                    area.y,
-                    row.content,
-                    max_line_width,
-                    Style::default(),
-                );
-            }
             if row.line_index == buffer.cursor.line {
                 if (row.index * buffer.area.w as usize) <= buffer.cursor.index {
                     cursor_row = index;
+                }
+            }
+
+            // Highlight selection.
+            if let Some((start_cursor, end_cursor)) = &selection {
+                if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
+                    let start_index = start_cursor.index as u16 % buffer.area.w;
+                    let end_index = end_cursor.index as u16 % buffer.area.w;
+
+                    if start_cursor.line == end_cursor.line {
+                        // Highlight from the start index to the end index.
+                        for i in start_index..end_index {
+                            frame.buffer.get_mut(area.x + i, area.y)
+                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+                        }
+                    } else if row.line_index == start_cursor.line {
+                        // Highlight from the start index to the end of the row.
+                        for i in start_index..(row.content.len() as u16) {
+                            frame.buffer.get_mut(area.x + i, area.y)
+                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+                        }
+                    } else if row.line_index > start_cursor.line
+                        && row.line_index < end_cursor.line
+                    {
+                        // Highlight the whole line.
+                        for i in 0..row.content.len() {
+                            frame.buffer.get_mut(area.x + i as u16, area.y)
+                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+                        }
+                    } else if row.line_index == end_cursor.line {
+                        // Highlight from the start of the row to the end index.
+                        for i in 0..end_index {
+                            frame.buffer.get_mut(area.x + i, area.y)
+                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+                        }
+                    }
                 }
             }
         }
