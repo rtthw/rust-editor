@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown: false,
         initialized: false,
         workspace_info,
-        buffer: Buffer::new(include_str!("main.rs")),
+        buffers: BufferSet::new(include_str!("main.rs")),
         input_context: InputContext::default(),
     })
 }
@@ -31,7 +31,7 @@ struct App {
     initialized: bool,
 
     workspace_info: WorkspaceInfo,
-    buffer: Buffer,
+    buffers: BufferSet,
     input_context: InputContext,
 }
 
@@ -56,8 +56,9 @@ impl Program for App {
         );
 
         let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);
+        let buffer = self.buffers.current_buffer_mut();
 
-        self.buffer.area = buffer_area;
+        buffer.area = buffer_area;
 
         let max_gutter_width = gutter_area.w as usize;
         let max_line_width = buffer_area.w as usize;
@@ -66,7 +67,7 @@ impl Program for App {
         let mut last_line_index = 1;
         for (index, ((area, gutter), row)) in buffer_area.rows().into_iter()
             .zip(gutter_area.rows().into_iter())
-            .zip(self.buffer.visible_rows())
+            .zip(buffer.visible_rows())
             .enumerate()
         {
             if row.line_index != last_line_index {
@@ -86,15 +87,15 @@ impl Program for App {
                 max_line_width,
                 Style::default(),
             );
-            if row.line_index == self.buffer.cursor.line {
-                if (row.index * self.buffer.area.w as usize) <= self.buffer.cursor.index {
+            if row.line_index == buffer.cursor.line {
+                if (row.index * buffer.area.w as usize) <= buffer.cursor.index {
                     cursor_row = index;
                 }
             }
         }
 
         frame.cursor = Some((
-            buffer_area.x + (self.buffer.cursor.index as u16 % self.buffer.area.w),
+            buffer_area.x + (buffer.cursor.index as u16 % buffer.area.w),
             buffer_area.y + cursor_row as u16,
         ));
 
@@ -107,56 +108,57 @@ impl Program for App {
         match input {
             Input::KeyDown(Scancode::LEFT) => {
                 if self.input_context.is_key_down(&Scancode::L_CTRL) {
-                    self.buffer.perform_action(EditAction::MovePrevWord);
+                    self.buffers.current_buffer_mut().perform_action(EditAction::MovePrevWord);
                 } else {
-                    self.buffer.perform_action(EditAction::MoveLeft);
+                    self.buffers.current_buffer_mut().perform_action(EditAction::MoveLeft);
                 }
             }
             Input::KeyDown(Scancode::RIGHT) => {
                 if self.input_context.is_key_down(&Scancode::L_CTRL) {
-                    self.buffer.perform_action(EditAction::MoveNextWord);
+                    self.buffers.current_buffer_mut().perform_action(EditAction::MoveNextWord);
                 } else {
-                    self.buffer.perform_action(EditAction::MoveRight);
+                    self.buffers.current_buffer_mut().perform_action(EditAction::MoveRight);
                 }
             }
             Input::KeyDown(Scancode::UP) => {
-                self.buffer.perform_action(EditAction::MoveUp);
+                self.buffers.current_buffer_mut().perform_action(EditAction::MoveUp);
             }
             Input::KeyDown(Scancode::DOWN) => {
-                self.buffer.perform_action(EditAction::MoveDown);
+                self.buffers.current_buffer_mut().perform_action(EditAction::MoveDown);
             }
 
             Input::KeyDown(Scancode::BACKSPACE) => {
-                self.buffer.perform_action(EditAction::Backspace);
+                self.buffers.current_buffer_mut().perform_action(EditAction::Backspace);
             }
             Input::KeyDown(Scancode::DELETE) => {
-                self.buffer.perform_action(EditAction::Delete);
+                self.buffers.current_buffer_mut().perform_action(EditAction::Delete);
             }
 
             Input::KeyDown(Scancode::SPACE) => {
-                self.buffer.perform_action(EditAction::Insert(' '));
+                self.buffers.current_buffer_mut().perform_action(EditAction::Insert(' '));
             }
             // TODO: Indentation.
             Input::KeyDown(Scancode::TAB) => {
-                self.buffer.perform_action(EditAction::Insert('\t'));
+                self.buffers.current_buffer_mut().perform_action(EditAction::Insert('\t'));
             }
             Input::KeyDown(Scancode::ENTER) => {
-                self.buffer.perform_action(EditAction::NewLine);
+                self.buffers.current_buffer_mut().perform_action(EditAction::NewLine);
             }
 
             Input::MouseDown(MouseButton::Left) => {
                 if let Some((mouse_x, mouse_y)) = self.input_context.mouse_pos() {
-                    self.buffer.perform_action(EditAction::Click((
-                        mouse_x.saturating_sub(self.buffer.area.x),
-                        mouse_y.saturating_sub(self.buffer.area.y),
+                    let buffer = self.buffers.current_buffer_mut();
+                    buffer.perform_action(EditAction::Click((
+                        mouse_x.saturating_sub(buffer.area.x),
+                        mouse_y.saturating_sub(buffer.area.y),
                     )));
                 }
             }
             Input::WheelUp => {
-                self.buffer.perform_action(EditAction::ScrollUp);
+                self.buffers.current_buffer_mut().perform_action(EditAction::ScrollUp);
             }
             Input::WheelDown => {
-                self.buffer.perform_action(EditAction::ScrollDown);
+                self.buffers.current_buffer_mut().perform_action(EditAction::ScrollDown);
             }
 
             Input::KeyDown(other) => {
@@ -170,9 +172,9 @@ impl Program for App {
                         }
                     } else if self.input_context.is_key_down(&Scancode::L_SHIFT) {
                         let ch = util::shifted_char(ch);
-                        self.buffer.perform_action(EditAction::Insert(ch));
+                        self.buffers.current_buffer_mut().perform_action(EditAction::Insert(ch));
                     } else {
-                        self.buffer.perform_action(EditAction::Insert(ch));
+                        self.buffers.current_buffer_mut().perform_action(EditAction::Insert(ch));
                     }
                 }
             }
@@ -187,6 +189,17 @@ impl Program for App {
 pub struct BufferSet {
     buffers: Vec<Buffer>,
     current: usize,
+}
+
+impl BufferSet {
+    pub fn new(initial_buffer_content: &str) -> Self {
+        let current_buffer = Buffer::new(initial_buffer_content);
+
+        Self {
+            buffers: vec![current_buffer],
+            current: 0,
+        }
+    }
 }
 
 impl BufferSet {
