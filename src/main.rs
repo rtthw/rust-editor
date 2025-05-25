@@ -125,7 +125,7 @@ impl Program for App {
                 self.buffer.perform_action(EditAction::NewLine);
             }
 
-            Input::KeyDown(Scancode::LMB) => {
+            Input::MouseDown(MouseButton::Left) => {
                 if let Some((mouse_x, mouse_y)) = self.input_context.mouse_pos() {
                     self.buffer.perform_action(EditAction::Click((
                         mouse_x.saturating_sub(self.buffer.area.x),
@@ -133,10 +133,10 @@ impl Program for App {
                     )));
                 }
             }
-            Input::KeyDown(Scancode::SCROLLUP) => {
+            Input::WheelUp => {
                 self.buffer.perform_action(EditAction::ScrollUp);
             }
-            Input::KeyDown(Scancode::SCROLLDOWN) => {
+            Input::WheelDown => {
                 self.buffer.perform_action(EditAction::ScrollDown);
             }
 
