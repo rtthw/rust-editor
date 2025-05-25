@@ -6,24 +6,34 @@ use std::{path::PathBuf, sync::RwLock};
 
 
 
-/// Finds the current workspace folder.
-///
-/// This function starts searching the filesystem upward from the CWD, and returns the first
-/// directory that contains an indicator of a workspace (for now, just a `.git` subdirectory).
-///
-/// If no workspace was found, returns (CWD, true).
-/// Otherwise (workspace, false) is returned
-pub fn find_workspace() -> (PathBuf, bool) {
-    let current_dir = cwd();
-    for ancestor in current_dir.ancestors() {
+#[derive(Clone, Debug)]
+pub struct WorkspaceInfo {
+    /// The path to this workspace.
+    pub path: PathBuf,
+    /// Whether this workspace has version control.
+    pub has_vc: bool,
+}
+
+
+/// Finds the current workspace.
+pub fn find_workspace() -> WorkspaceInfo {
+    let mut path = cwd();
+    let mut has_vc = false;
+
+    // Find the first ancestor that has version control, and use it as the workspace.
+    for ancestor in cwd().ancestors() {
         if ancestor.join(".git").exists()
             // || ancestor.join(".svn").exists()
         {
-            return (ancestor.to_owned(), false);
+            path = ancestor.to_path_buf();
+            has_vc = true;
         }
     }
 
-    (current_dir, true)
+    WorkspaceInfo {
+        path,
+        has_vc,
+    }
 }
 
 static CWD: RwLock<Option<PathBuf>> = RwLock::new(None);

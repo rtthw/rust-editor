@@ -3,8 +3,6 @@
 
 mod workspace;
 
-use std::path::PathBuf;
-
 use dreg::*;
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -13,16 +11,14 @@ use workspace::*;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (workspace_dir, failure) = find_workspace();
-    if failure {
-        println!("{:?}", workspace_dir);
-        return Err("Could not find a workspace in this directory".into());
-    }
+    let workspace_info = find_workspace();
+    println!("WORKSPACE_DIR: {}", workspace_info.path.display());
+    println!("HAS_VERSION_CONTROL: {}", workspace_info.has_vc);
 
     Terminal::new().run(App {
         shutdown: false,
         initialized: false,
-        workspace_dir,
+        workspace_info,
         buffer: Buffer::new(include_str!("main.rs")),
         input_context: InputContext::default(),
     })
@@ -34,7 +30,7 @@ struct App {
     shutdown: bool,
     initialized: bool,
 
-    workspace_dir: PathBuf,
+    workspace_info: WorkspaceInfo,
     buffer: Buffer,
     input_context: InputContext,
 }
@@ -54,7 +50,7 @@ impl Program for App {
         frame.buffer.set_stringn(
             side_area.x,
             side_area.y,
-            self.workspace_dir.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
+            self.workspace_info.path.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
             side_area.w as _,
             Style::default().dim(),
         );
