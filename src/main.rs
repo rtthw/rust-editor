@@ -68,13 +68,32 @@ impl Program for App {
                 Style::default().dim()
             };
 
-            frame.buffer.set_stringn(
-                area.x + (entry.level as u16 * 2),
-                area.y,
-                entry.name,
-                area.w as usize - (entry.level * 2),
-                style,
-            );
+            if entry.level > 0 {
+                let (indicator_area, name_area) = area.hsplit_len(entry.level as u16 * 2);
+                let padding = indicator_area.w.saturating_sub(2);
+                frame.buffer.set_stringn(
+                    indicator_area.x + padding,
+                    indicator_area.y,
+                    "┕",
+                    (indicator_area.w - padding) as _,
+                    style.fg(Color::Rgb(73, 73, 83)),
+                );
+                frame.buffer.set_stringn(
+                    name_area.x,
+                    name_area.y,
+                    entry.name,
+                    name_area.w as _,
+                    style,
+                );
+            } else {
+                frame.buffer.set_stringn(
+                    area.x,
+                    area.y,
+                    entry.name,
+                    area.w as _,
+                    style,
+                );
+            }
         }
 
         let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);

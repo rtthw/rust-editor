@@ -80,7 +80,7 @@ fn read_entries(path: &Path, level: usize, limit: usize) -> Result<Vec<Entry>, s
             let children = if level < limit {
                 read_entries(&path, level + 1, limit)?
             } else {
-                vec![Entry::ContinuationMarker { parent: path.clone(), level }]
+                vec![Entry::ContinuationMarker { parent: path.clone(), level: level + 1 }]
             };
             Entry::Dir { path, children, level }
         } else {
@@ -117,10 +117,28 @@ impl Workspace {
                     path: entry.path(),
                     level: entry.level(),
                 });
-                entries.extend(children.iter().map(|e| EntryView {
-                    name: e.name(),
-                    path: e.path(),
-                    level: e.level(),
+                entries.extend(children.iter().flat_map(|entry| {
+                    if let Entry::Dir { children, .. } = &entry {
+                        let mut entries = Vec::with_capacity(children.len() + 1);
+                        entries.push(EntryView {
+                            name: entry.name(),
+                            path: entry.path(),
+                            level: entry.level(),
+                        });
+                        entries.extend(children.iter().map(|e| EntryView {
+                            name: e.name(),
+                            path: e.path(),
+                            level: e.level(),
+                        }));
+
+                        entries.into_iter()
+                    } else {
+                        vec![EntryView {
+                            name: entry.name(),
+                            path: entry.path(),
+                            level: entry.level(),
+                        }].into_iter()
+                    }
                 }));
 
                 entries.into_iter()
