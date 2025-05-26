@@ -62,12 +62,18 @@ impl Program for App {
             .take(files_area.h as usize)
             .zip(files_area.rows())
         {
+            let style = if self.input_context.hovered(&area) {
+                Style::default()
+            } else {
+                Style::default().dim()
+            };
+
             frame.buffer.set_stringn(
-                area.x,
+                area.x + (entry.level as u16 * 2),
                 area.y,
-                entry.name(),
-                area.w as _,
-                Style::default().dim(),
+                entry.name,
+                area.w as usize - (entry.level * 2),
+                style,
             );
         }
 

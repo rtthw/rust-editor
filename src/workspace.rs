@@ -63,7 +63,7 @@ pub fn cwd() -> PathBuf {
 
 
 pub fn read_workspace(info: WorkspaceInfo) -> Result<Workspace, std::io::Error> {
-    let entries = read_entries(&info.path, 0, 2)?;
+    let entries = read_entries(&info.path, 0, 1)?;
 
     Ok(Workspace {
         info,
@@ -80,11 +80,11 @@ fn read_entries(path: &Path, level: usize, limit: usize) -> Result<Vec<Entry>, s
             let children = if level < limit {
                 read_entries(&path, level + 1, limit)?
             } else {
-                vec![Entry::ContinuationMarker { parent: path.clone() }]
+                vec![Entry::ContinuationMarker { parent: path.clone(), level }]
             };
-            Entry::Dir { path, children }
+            Entry::Dir { path, children, level }
         } else {
-            Entry::File { path }
+            Entry::File { path, level }
         });
     }
     entries.sort_by(|a, b| {
@@ -108,8 +108,30 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn entries(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.iter()
+    pub fn entries(&self) -> impl Iterator<Item = EntryView> {
+        self.entries.iter().flat_map(|entry| {
+            if let Entry::Dir { children, .. } = &entry {
+                let mut entries = Vec::with_capacity(children.len() + 1);
+                entries.push(EntryView {
+                    name: entry.name(),
+                    path: entry.path(),
+                    level: entry.level(),
+                });
+                entries.extend(children.iter().map(|e| EntryView {
+                    name: e.name(),
+                    path: e.path(),
+                    level: e.level(),
+                }));
+
+                entries.into_iter()
+            } else {
+                vec![EntryView {
+                    name: entry.name(),
+                    path: entry.path(),
+                    level: entry.level(),
+                }].into_iter()
+            }
+        })
     }
 }
 
@@ -117,13 +139,16 @@ impl Workspace {
 pub enum Entry {
     File {
         path: PathBuf,
+        level: usize,
     },
     Dir {
         path: PathBuf,
         children: Vec<Entry>,
+        level: usize,
     },
     ContinuationMarker {
         parent: PathBuf,
+        level: usize,
     },
 }
 
@@ -134,9 +159,9 @@ impl Entry {
 
     pub fn path(&self) -> &Path {
         match self {
-            Entry::File { path } => &path,
+            Entry::File { path, .. } => &path,
             Entry::Dir { path, .. } => &path,
-            Entry::ContinuationMarker { parent } => &parent,
+            Entry::ContinuationMarker { parent, .. } => &parent,
         }
     }
 
@@ -148,4 +173,18 @@ impl Entry {
             }
         }
     }
+
+    pub fn level(&self) -> usize {
+        match self {
+            Entry::File { level, .. } => *level,
+            Entry::Dir { level, .. } => *level,
+            Entry::ContinuationMarker { level, .. } => *level,
+        }
+    }
+}
+
+pub struct EntryView<'a> {
+    pub name: &'a str,
+    pub path: &'a Path,
+    pub level: usize,
 }
