@@ -14,11 +14,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let workspace_info = find_workspace();
     println!("WORKSPACE_DIR: {}", workspace_info.path.display());
     println!("HAS_VERSION_CONTROL: {}", workspace_info.has_vc);
+    let workspace = read_workspace(workspace_info)?;
 
     Terminal::new().run(App {
         shutdown: false,
         initialized: false,
-        workspace_info,
+        workspace,
         buffers: BufferSet::new("src/main.rs", include_str!("main.rs")),
         input_context: InputContext::default(),
     })
@@ -30,7 +31,7 @@ struct App {
     shutdown: bool,
     initialized: bool,
 
-    workspace_info: WorkspaceInfo,
+    workspace: Workspace,
     buffers: BufferSet,
     input_context: InputContext,
 }
@@ -52,7 +53,7 @@ impl Program for App {
         frame.buffer.set_stringn(
             side_area.x,
             side_area.y,
-            self.workspace_info.path.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
+            self.workspace.info.path.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
             side_area.w as _,
             Style::default().dim(),
         );
