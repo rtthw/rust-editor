@@ -49,21 +49,27 @@ impl Program for App {
         let buffer = self.buffers.current_buffer_mut();
 
         let (side_area, buffer_area) = frame.area().hsplit_portion(0.2);
+        let (header_area, files_area) = side_area.vsplit_len(2);
 
         frame.buffer.set_stringn(
-            side_area.x,
-            side_area.y,
+            header_area.x,
+            header_area.y,
             self.workspace.info.path.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
-            side_area.w as _,
+            header_area.w as _,
             Style::default().dim(),
         );
-        frame.buffer.set_stringn(
-            side_area.x,
-            side_area.y + 1,
-            &buffer.name,
-            side_area.w as _,
-            Style::default(),
-        );
+        for (entry, area) in self.workspace.entries()
+            .take(files_area.h as usize)
+            .zip(files_area.rows())
+        {
+            frame.buffer.set_stringn(
+                area.x,
+                area.y,
+                entry.name(),
+                area.w as _,
+                Style::default().dim(),
+            );
+        }
 
         let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);
 

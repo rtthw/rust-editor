@@ -62,11 +62,6 @@ pub fn cwd() -> PathBuf {
 
 
 
-pub struct Workspace {
-    pub info: WorkspaceInfo,
-    pub entries: Vec<Entry>,
-}
-
 pub fn read_workspace(info: WorkspaceInfo) -> Result<Workspace, std::io::Error> {
     let mut entries = Vec::new();
 
@@ -97,6 +92,17 @@ pub fn read_workspace(info: WorkspaceInfo) -> Result<Workspace, std::io::Error> 
 
 
 
+pub struct Workspace {
+    pub info: WorkspaceInfo,
+    pub entries: Vec<Entry>,
+}
+
+impl Workspace {
+    pub fn entries(&self) -> impl Iterator<Item = &Entry> {
+        self.entries.iter()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Entry {
     File {
@@ -117,5 +123,9 @@ impl Entry {
             Entry::File { path } => &path,
             Entry::Dir { path } => &path,
         }
+    }
+
+    pub fn name(&self) -> &str {
+        self.path().file_name().and_then(|os_str| os_str.to_str()).unwrap()
     }
 }
