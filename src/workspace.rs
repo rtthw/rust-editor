@@ -63,13 +63,26 @@ pub fn cwd() -> PathBuf {
 
 
 pub fn read_workspace(info: WorkspaceInfo) -> Result<Workspace, std::io::Error> {
-    let mut entries = Vec::new();
+    let entries = read_entries(&info.path, 0, 2)?;
 
-    for e in std::fs::read_dir(&info.path)? {
+    Ok(Workspace {
+        info,
+        entries,
+    })
+}
+
+fn read_entries(path: &Path, level: usize, limit: usize) -> Result<Vec<Entry>, std::io::Error> {
+    let mut entries = vec![];
+    for e in std::fs::read_dir(path)? {
         let entry = e?;
         let path = entry.path();
         entries.push(if path.is_dir() {
-            Entry::Dir { path }
+            let children = if level < limit {
+                read_entries(&path, level + 1, limit)?
+            } else {
+                vec![Entry::ContinuationMarker { parent: path.clone() }]
+            };
+            Entry::Dir { path, children }
         } else {
             Entry::File { path }
         });
@@ -84,10 +97,7 @@ pub fn read_workspace(info: WorkspaceInfo) -> Result<Workspace, std::io::Error> 
         }
     });
 
-    Ok(Workspace {
-        info,
-        entries,
-    })
+    Ok(entries)
 }
 
 
@@ -110,6 +120,10 @@ pub enum Entry {
     },
     Dir {
         path: PathBuf,
+        children: Vec<Entry>,
+    },
+    ContinuationMarker {
+        parent: PathBuf,
     },
 }
 
@@ -121,11 +135,17 @@ impl Entry {
     pub fn path(&self) -> &Path {
         match self {
             Entry::File { path } => &path,
-            Entry::Dir { path } => &path,
+            Entry::Dir { path, .. } => &path,
+            Entry::ContinuationMarker { parent } => &parent,
         }
     }
 
     pub fn name(&self) -> &str {
-        self.path().file_name().and_then(|os_str| os_str.to_str()).unwrap()
+        match self {
+            Entry::ContinuationMarker { .. } => "...",
+            other => {
+                other.path().file_name().and_then(|os_str| os_str.to_str()).unwrap()
+            }
+        }
     }
 }
