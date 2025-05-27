@@ -1,3 +1,4 @@
+//! A rust editor.
 
 
 
@@ -173,6 +174,20 @@ impl Program for App {
             }
         }
 
+        for (line_index, range, scope) in &buffer.scopes {
+            // Don't highlight lines out of view.
+            if *line_index < buffer.scroll_y_offset as usize
+                || *line_index >= (buffer.area.h + buffer.scroll_y_offset) as usize
+            {
+                continue;
+            }
+
+            let y = line_index.saturating_sub(buffer.scroll_y_offset as usize) as u16;
+            for i in range.clone() {
+                frame.buffer.get_mut(buffer.area.x + i as u16, y).fg = scope.color();
+            }
+        }
+
         frame.cursor = Some((
             buffer_area.x + (buffer.cursor.index as u16 % buffer.area.w),
             buffer_area.y + cursor_row as u16,
@@ -287,25 +302,24 @@ pub struct BufferSet {
     buffers: Vec<Buffer>,
     current: usize,
     syntaxes: syntect::parsing::SyntaxSet,
-    themes: syntect::highlighting::ThemeSet,
 }
 
 impl BufferSet {
     pub fn new(initial_buffer_path: PathBuf, initial_buffer_content: &str) -> Self {
         let scratch_buffer = Buffer::new(BufferKind::Other, "");
-        let current_buffer = Buffer::new(
+        let mut current_buffer = Buffer::new(
             BufferKind::File(initial_buffer_path),
             initial_buffer_content,
         );
 
         let syntaxes = syntect::parsing::SyntaxSet::load_defaults_nonewlines();
-        let themes = syntect::highlighting::ThemeSet::load_defaults();
+
+        current_buffer.parse(&syntaxes);
 
         Self {
             buffers: vec![scratch_buffer, current_buffer],
             current: 1,
             syntaxes,
-            themes,
         }
     }
 }
@@ -424,6 +438,7 @@ impl Buffer {
                 if range.is_empty() {
                     continue;
                 }
+                // println!("LINE #{line_index}: \"{}\" = '{:?}'", &line.content[range], scopes);
                 if let Some(scope) = {
                     if selectors.comment.does_match(scopes.as_slice()).is_some() {
                         if selectors.doc_comment.does_match(scopes.as_slice()).is_some() {
@@ -433,6 +448,8 @@ impl Buffer {
                         }
                     } else if selectors.function.does_match(scopes.as_slice()).is_some() {
                         Some(SourceScope::Function)
+                    } else if selectors.keyword.does_match(scopes.as_slice()).is_some() {
+                        Some(SourceScope::Keyword)
                     } else if selectors.types.does_match(scopes.as_slice()).is_some() {
                         Some(SourceScope::Type)
                     } else {
@@ -1068,6 +1085,7 @@ pub struct ScopeSelectors {
     pub comment: syntect::highlighting::ScopeSelector,
     pub doc_comment: syntect::highlighting::ScopeSelectors,
     pub function: syntect::highlighting::ScopeSelector,
+    pub keyword: syntect::highlighting::ScopeSelectors,
     pub types: syntect::highlighting::ScopeSelectors,
 }
 
@@ -1077,6 +1095,7 @@ impl Default for ScopeSelectors {
             comment: "comment - comment.block.attribute".parse().unwrap(),
             doc_comment: "comment.line.documentation, comment.block.documentation".parse().unwrap(),
             function: "entity.name.function".parse().unwrap(),
+            keyword: "keyword, storage".parse().unwrap(),
             types: "entity.name.class, entity.name.struct, entity.name.enum, entity.name.type"
                 .parse().unwrap(),
         }
@@ -1087,5 +1106,18 @@ pub enum SourceScope {
     Comment,
     DocComment,
     Function,
+    Keyword,
     Type,
+}
+
+impl SourceScope {
+    pub const fn color(&self) -> Color {
+        match self {
+            SourceScope::Comment => Color::Rgb(0x59, 0x59, 0x6d),
+            SourceScope::DocComment => Color::Rgb(0x87, 0xb6, 0x97),
+            SourceScope::Function => Color::Rgb(0x95, 0xb7, 0xdf),
+            SourceScope::Keyword => Color::Rgb(0xd9, 0x6d, 0x81),
+            SourceScope::Type => Color::Rgb(0x8b, 0x8b, 0x95),
+        }
+    }
 }
