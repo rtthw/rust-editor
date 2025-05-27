@@ -19,11 +19,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("HAS_VERSION_CONTROL: {}", workspace_info.has_vc);
     let workspace = read_workspace(workspace_info)?;
 
+    let syntaxes = syntect::parsing::SyntaxSet::load_defaults_nonewlines();
+
     Terminal::new().run(App {
         shutdown: false,
         initialized: false,
         workspace,
         buffers: BufferSet::new("./src/main.rs".into(), include_str!("main.rs")),
+        syntaxes,
         input_context: InputContext::default(),
     })
 }
@@ -36,6 +39,7 @@ struct App {
 
     workspace: Workspace,
     buffers: BufferSet,
+    syntaxes: syntect::parsing::SyntaxSet,
     input_context: InputContext,
 }
 
@@ -47,9 +51,14 @@ impl Program for App {
         }
         if !self.initialized {
             frame.commands.push(Command::SetCursorStyle(CursorStyle::BlinkingBar));
+            self.initialized = true;
         }
 
         let buffer = self.buffers.current_buffer_mut();
+        if buffer.needs_reparse {
+            buffer.parse(&self.syntaxes);
+            buffer.needs_reparse = false;
+        }
 
         let (side_area, buffer_area) = frame.area().hsplit_portion(0.2);
         let (header_area, files_area) = side_area.vsplit_len(2);
@@ -301,7 +310,6 @@ impl Program for App {
 pub struct BufferSet {
     buffers: Vec<Buffer>,
     current: usize,
-    syntaxes: syntect::parsing::SyntaxSet,
 }
 
 impl BufferSet {
@@ -312,14 +320,9 @@ impl BufferSet {
             initial_buffer_content,
         );
 
-        let syntaxes = syntect::parsing::SyntaxSet::load_defaults_nonewlines();
-
-        current_buffer.parse(&syntaxes);
-
         Self {
             buffers: vec![scratch_buffer, current_buffer],
             current: 1,
-            syntaxes,
         }
     }
 }
@@ -391,6 +394,7 @@ pub struct Buffer {
     kind: BufferKind,
     lines: Vec<Line>,
     scopes: Vec<(usize, Range<usize>, SourceScope)>,
+    needs_reparse: bool,
     cursor: Cursor,
     selection: Selection,
     area: Area,
@@ -415,6 +419,7 @@ impl Buffer {
             kind,
             lines,
             scopes: vec![],
+            needs_reparse: true,
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
             area: Area::ZERO, // Set by the render function in `App`.
@@ -438,7 +443,6 @@ impl Buffer {
                 if range.is_empty() {
                     continue;
                 }
-                // println!("LINE #{line_index}: \"{}\" = '{:?}'", &line.content[range], scopes);
                 if let Some(scope) = {
                     if selectors.comment.does_match(scopes.as_slice()).is_some() {
                         if selectors.doc_comment.does_match(scopes.as_slice()).is_some() {
@@ -581,6 +585,9 @@ impl Buffer {
 
         cursor.index = self.lines[cursor.line].content.len() - after_len;
 
+        // TODO: Optimize the parsing sequence before re-parsing so frequently.
+        // self.needs_reparse = true;
+
         cursor
     }
 
@@ -676,6 +683,9 @@ impl Buffer {
                 self.lines[start.line].append(end_line);
             }
         }
+
+        // TODO: Optimize the parsing sequence before re-parsing so frequently.
+        // self.needs_reparse = true;
     }
 
     pub fn perform_action(&mut self, action: EditAction) {
