@@ -3,6 +3,8 @@
 
 mod workspace;
 
+use std::{ops::Range, path::PathBuf};
+
 use dreg::*;
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -20,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown: false,
         initialized: false,
         workspace,
-        buffers: BufferSet::new("src/main.rs", include_str!("main.rs")),
+        buffers: BufferSet::new("./src/main.rs".into(), include_str!("main.rs")),
         input_context: InputContext::default(),
     })
 }
@@ -284,16 +286,26 @@ impl Program for App {
 pub struct BufferSet {
     buffers: Vec<Buffer>,
     current: usize,
+    syntaxes: syntect::parsing::SyntaxSet,
+    themes: syntect::highlighting::ThemeSet,
 }
 
 impl BufferSet {
-    pub fn new(initial_buffer_name: &str, initial_buffer_content: &str) -> Self {
-        let scratch_buffer = Buffer::new("SCRATCH", "");
-        let current_buffer = Buffer::new(initial_buffer_name, initial_buffer_content);
+    pub fn new(initial_buffer_path: PathBuf, initial_buffer_content: &str) -> Self {
+        let scratch_buffer = Buffer::new(BufferKind::Other, "");
+        let current_buffer = Buffer::new(
+            BufferKind::File(initial_buffer_path),
+            initial_buffer_content,
+        );
+
+        let syntaxes = syntect::parsing::SyntaxSet::load_defaults_nonewlines();
+        let themes = syntect::highlighting::ThemeSet::load_defaults();
 
         Self {
             buffers: vec![scratch_buffer, current_buffer],
-            current: 0,
+            current: 1,
+            syntaxes,
+            themes,
         }
     }
 }
@@ -362,16 +374,22 @@ impl BufferSet {
 
 
 pub struct Buffer {
-    name: String,
+    kind: BufferKind,
     lines: Vec<Line>,
+    scopes: Vec<(usize, Range<usize>, SourceScope)>,
     cursor: Cursor,
     selection: Selection,
     area: Area,
     scroll_y_offset: u16,
 }
 
+pub enum BufferKind {
+    File(PathBuf),
+    Other,
+}
+
 impl Buffer {
-    pub fn new(name: impl Into<String>, content: &str) -> Self {
+    pub fn new(kind: BufferKind, content: &str) -> Self {
         let mut lines: Vec<Line> = content.lines()
             .map(|s| Line { content: s.to_string() })
             .collect();
@@ -380,12 +398,54 @@ impl Buffer {
         }
 
         Self {
-            name: name.into(),
+            kind,
             lines,
+            scopes: vec![],
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
             area: Area::ZERO, // Set by the render function in `App`.
             scroll_y_offset: 0,
+        }
+    }
+
+    pub fn parse(&mut self, syntaxes: &syntect::parsing::SyntaxSet) {
+        let BufferKind::File(path) = &self.kind else { return; };
+
+        let syntax = syntaxes.find_syntax_for_file(path).unwrap().unwrap();
+        let mut parser = syntect::parsing::ParseState::new(syntax);
+        let mut scopes = syntect::parsing::ScopeStack::new();
+
+        let selectors = ScopeSelectors::default();
+
+        for (line_index, line) in self.lines.iter().enumerate() {
+            let ops = parser.parse_line(&line.content, syntaxes).unwrap();
+            for (range, op) in syntect::easy::ScopeRangeIterator::new(&ops, &line.content) {
+                scopes.apply(op).unwrap();
+                if range.is_empty() {
+                    continue;
+                }
+                if let Some(scope) = {
+                    if selectors.comment.does_match(scopes.as_slice()).is_some() {
+                        if selectors.doc_comment.does_match(scopes.as_slice()).is_some() {
+                            Some(SourceScope::DocComment)
+                        } else {
+                            Some(SourceScope::Comment)
+                        }
+                    } else if selectors.function.does_match(scopes.as_slice()).is_some() {
+                        Some(SourceScope::Function)
+                    } else if selectors.types.does_match(scopes.as_slice()).is_some() {
+                        Some(SourceScope::Type)
+                    } else {
+                        None
+                    }
+                } {
+                    self.scopes.push((
+                        line_index,
+                        range,
+                        scope,
+                    ));
+                }
+            }
         }
     }
 
@@ -1000,4 +1060,32 @@ mod util {
             other => other.to_ascii_uppercase(),
         }
     }
+}
+
+
+
+pub struct ScopeSelectors {
+    pub comment: syntect::highlighting::ScopeSelector,
+    pub doc_comment: syntect::highlighting::ScopeSelectors,
+    pub function: syntect::highlighting::ScopeSelector,
+    pub types: syntect::highlighting::ScopeSelectors,
+}
+
+impl Default for ScopeSelectors {
+    fn default() -> ScopeSelectors {
+        ScopeSelectors {
+            comment: "comment - comment.block.attribute".parse().unwrap(),
+            doc_comment: "comment.line.documentation, comment.block.documentation".parse().unwrap(),
+            function: "entity.name.function".parse().unwrap(),
+            types: "entity.name.class, entity.name.struct, entity.name.enum, entity.name.type"
+                .parse().unwrap(),
+        }
+    }
+}
+
+pub enum SourceScope {
+    Comment,
+    DocComment,
+    Function,
+    Type,
 }
