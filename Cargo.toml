@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dreg = { path = "../dreg" }
+bog = { path = "../bog" }
 syntect = "5"
 unicode-segmentation = "1"

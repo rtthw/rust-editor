@@ -4,16 +4,28 @@
 
 mod workspace;
 
-use std::{ops::Range, path::PathBuf};
+use std::{collections::HashSet, ops::Range, path::PathBuf};
 
-use dreg::*;
+use bog::{prelude::*, render::FontFamily};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use workspace::*;
 
 
+pub const GRAY_0: Color = Color::new(13, 13, 23, 255); // 0d0d17
+pub const GRAY_1: Color = Color::new(29, 29, 39, 255); // 1d1d27
+pub const GRAY_2: Color = Color::new(43, 43, 53, 255); // 2b2b35
+pub const GRAY_3: Color = Color::new(59, 59, 67, 255); // 3b3b43
+pub const GRAY_4: Color = Color::new(73, 73, 83, 255); // 494953
+pub const GRAY_5: Color = Color::new(89, 89, 109, 255); // 59596d
+pub const GRAY_6: Color = Color::new(113, 113, 127, 255); // 71717f
+pub const GRAY_7: Color = Color::new(139, 139, 149, 255); // 8b8b95
+pub const GRAY_8: Color = Color::new(163, 163, 173, 255); // a3a3ad
+pub const GRAY_9: Color = Color::new(191, 191, 197, 255); // bfbfc5
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+
+fn main() -> Result<()> {
     let workspace_info = find_workspace();
     println!("WORKSPACE_DIR: {}", workspace_info.path.display());
     println!("HAS_VERSION_CONTROL: {}", workspace_info.has_vc);
@@ -21,14 +33,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let syntaxes = syntect::parsing::SyntaxSet::load_defaults_nonewlines();
 
-    Terminal::new().run(App {
+    run_app(App {
         shutdown: false,
         initialized: false,
         workspace,
         buffers: BufferSet::new("./src/main.rs".into(), include_str!("main.rs")),
         syntaxes,
-        input_context: InputContext::default(),
-    })
+        keys_down: HashSet::with_capacity(3),
+    })?;
+
+    Ok(())
 }
 
 
@@ -40,75 +54,20 @@ struct App {
     workspace: Workspace,
     buffers: BufferSet,
     syntaxes: syntect::parsing::SyntaxSet,
-    input_context: InputContext,
+    keys_down: HashSet<KeyCode>,
 }
 
-impl Program for App {
-    fn render(&mut self, frame: &mut Frame) {
-        if self.shutdown {
-            frame.should_exit = true;
-            return;
-        }
-        if !self.initialized {
-            frame.commands.push(Command::SetCursorStyle(CursorStyle::BlinkingBar));
-            self.initialized = true;
-        }
-
+impl AppHandler for App {
+    fn render(&mut self, cx: AppContext, layers: &mut LayerStack) {
         let buffer = self.buffers.current_buffer_mut();
         if buffer.needs_reparse {
             buffer.parse(&self.syntaxes);
             buffer.needs_reparse = false;
         }
 
-        let (side_area, buffer_area) = frame.area().hsplit_portion(0.2);
-        let (header_area, files_area) = side_area.vsplit_len(2);
+        let (side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
 
-        frame.buffer.set_stringn(
-            header_area.x,
-            header_area.y,
-            self.workspace.info.path.file_name().and_then(|os_str| os_str.to_str()).unwrap(),
-            header_area.w as _,
-            Style::default().dim(),
-        );
-        for (entry, area) in self.workspace.entries()
-            .take(files_area.h as usize)
-            .zip(files_area.rows())
-        {
-            let style = if self.input_context.hovered(&area) {
-                Style::default()
-            } else {
-                Style::default().dim()
-            };
-
-            if entry.level > 0 {
-                let (indicator_area, name_area) = area.hsplit_len(entry.level as u16 * 2);
-                let padding = indicator_area.w.saturating_sub(2);
-                frame.buffer.set_stringn(
-                    indicator_area.x + padding,
-                    indicator_area.y,
-                    "┕",
-                    (indicator_area.w - padding) as _,
-                    style.fg(Color::Rgb(73, 73, 83)),
-                );
-                frame.buffer.set_stringn(
-                    name_area.x,
-                    name_area.y,
-                    entry.name,
-                    name_area.w as _,
-                    style,
-                );
-            } else {
-                frame.buffer.set_stringn(
-                    area.x,
-                    area.y,
-                    entry.name,
-                    area.w as _,
-                    style,
-                );
-            }
-        }
-
-        let (gutter_area, buffer_area) = buffer_area.hsplit_len(5);
+        let (gutter_area, buffer_area) = buffer_area.hsplit_len(23.0);
 
         buffer.area = buffer_area;
 
@@ -118,27 +77,28 @@ impl Program for App {
         let mut cursor_row = 0;
         let mut last_line_index = 1;
         let selection = buffer.selection_bounds();
-        for (index, ((area, gutter), row)) in buffer_area.rows().into_iter()
-            .zip(gutter_area.rows().into_iter())
-            .zip(buffer.visible_rows())
-            .enumerate()
-        {
+        let mut y_offset = 0.0;
+        for (index, row) in buffer.visible_rows().enumerate() {
             if row.line_index != last_line_index {
-                frame.buffer.set_stringn(
-                    gutter.x,
-                    gutter.y,
-                    &format!("{}", row.line_index + 1),
-                    max_gutter_width,
-                    Style::default().dim(),
-                );
+                // layers.fill_text(Text {
+                //     content: &format!("{}", row.line_index + 1),
+                //     color: GRAY_5,
+                //     size: 17.0,
+                //     pos: vec2(gutter_area.x, gutter_area.y + y_offset),
+                //     bounds: gutter_area.size(),
+                //     font_family: FontFamily::Monospace,
+                //     ..Default::default()
+                // });
             }
-            frame.buffer.set_stringn(
-                area.x,
-                area.y,
-                row.content,
-                max_line_width,
-                Style::default(),
-            );
+            layers.fill_text(Text {
+                content: row.content,
+                color: GRAY_7,
+                size: 17.0,
+                pos: vec2(buffer_area.x, buffer_area.y + y_offset),
+                bounds: buffer_area.size(),
+                font_family: FontFamily::Monospace,
+                ..Default::default()
+            });
             last_line_index = row.line_index;
             if row.line_index == buffer.cursor.line {
                 if (row.index * buffer.area.w as usize) <= buffer.cursor.index {
@@ -147,142 +107,117 @@ impl Program for App {
             }
 
             // Highlight selection.
-            if let Some((start_cursor, end_cursor)) = &selection {
-                if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
-                    let start_index = start_cursor.index as u16 % buffer.area.w;
-                    let end_index = end_cursor.index as u16 % buffer.area.w;
+            // if let Some((start_cursor, end_cursor)) = &selection {
+            //     if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
+            //         let start_index = start_cursor.index as u16 % buffer.area.w;
+            //         let end_index = end_cursor.index as u16 % buffer.area.w;
 
-                    if start_cursor.line == end_cursor.line {
-                        // Highlight from the start index to the end index.
-                        for i in start_index..end_index {
-                            frame.buffer.get_mut(area.x + i, area.y)
-                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-                        }
-                    } else if row.line_index == start_cursor.line {
-                        // Highlight from the start index to the end of the row.
-                        for i in start_index..(row.content.len() as u16) {
-                            frame.buffer.get_mut(area.x + i, area.y)
-                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-                        }
-                    } else if row.line_index > start_cursor.line
-                        && row.line_index < end_cursor.line
-                    {
-                        // Highlight the whole line.
-                        for i in 0..row.content.len() {
-                            frame.buffer.get_mut(area.x + i as u16, area.y)
-                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-                        }
-                    } else if row.line_index == end_cursor.line {
-                        // Highlight from the start of the row to the end index.
-                        for i in 0..end_index {
-                            frame.buffer.get_mut(area.x + i, area.y)
-                                .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-                        }
-                    }
-                }
-            }
+            //         if start_cursor.line == end_cursor.line {
+            //             // Highlight from the start index to the end index.
+            //             for i in start_index..end_index {
+            //                 frame.buffer.get_mut(area.x + i, area.y)
+            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+            //             }
+            //         } else if row.line_index == start_cursor.line {
+            //             // Highlight from the start index to the end of the row.
+            //             for i in start_index..(row.content.len() as u16) {
+            //                 frame.buffer.get_mut(area.x + i, area.y)
+            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+            //             }
+            //         } else if row.line_index > start_cursor.line
+            //             && row.line_index < end_cursor.line
+            //         {
+            //             // Highlight the whole line.
+            //             for i in 0..row.content.len() {
+            //                 frame.buffer.get_mut(area.x + i as u16, area.y)
+            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+            //             }
+            //         } else if row.line_index == end_cursor.line {
+            //             // Highlight from the start of the row to the end index.
+            //             for i in 0..end_index {
+            //                 frame.buffer.get_mut(area.x + i, area.y)
+            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
+            //             }
+            //         }
+            //     }
+            // }
+
+            y_offset += 23.0; // TODO: `line_height`.
         }
 
-        for (line_index, range, scope) in &buffer.scopes {
-            // Don't highlight lines out of view.
-            if *line_index < buffer.scroll_y_offset as usize
-                || *line_index >= (buffer.area.h + buffer.scroll_y_offset) as usize
-            {
-                continue;
-            }
-
-            let y = line_index.saturating_sub(buffer.scroll_y_offset as usize) as u16;
-            for i in range.clone() {
-                frame.buffer.get_mut(buffer.area.x + i as u16, y).fg = scope.color();
-            }
-        }
-
-        frame.cursor = Some((
-            buffer_area.x + (buffer.cursor.index as u16 % buffer.area.w),
-            buffer_area.y + cursor_row as u16,
-        ));
-
-        self.input_context.end_frame();
+        // frame.cursor = Some((
+        //     buffer_area.x + (buffer.cursor.index as u16 % buffer.area.w),
+        //     buffer_area.y + cursor_row as u16,
+        // ));
     }
 
-    fn input(&mut self, input: Input) {
-        self.input_context.handle_input(input);
+    // fn on_primary_mouse_down(&mut self, cx: AppContext) {
+    //     if let Some((mouse_x, mouse_y)) = self.input_context.mouse_pos() {
+    //         let buffer = self.buffers.current_buffer_mut();
+    //         buffer.perform_action(EditAction::Click((
+    //             mouse_x.saturating_sub(buffer.area.x),
+    //             mouse_y.saturating_sub(buffer.area.y),
+    //         )));
+    //     }
+    // }
 
-        match input {
-            Input::KeyDown(Scancode::LEFT) => {
-                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+    fn on_key_down(&mut self, cx: AppContext, code: KeyCode, repeat: bool) {
+        match code {
+            KeyCode::C_ARROWLEFT => {
+                if self.keys_down.contains(&KeyCode::C_LSHIFT) {
                     self.buffers.current_buffer_mut().start_or_continue_selection();
                 }
-                if self.input_context.is_key_down(&Scancode::L_CTRL) {
+                if self.keys_down.contains(&KeyCode::C_LCTRL) {
                     self.buffers.current_buffer_mut().perform_action(EditAction::MovePrevWord);
                 } else {
                     self.buffers.current_buffer_mut().perform_action(EditAction::MoveLeft);
                 }
             }
-            Input::KeyDown(Scancode::RIGHT) => {
-                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+            KeyCode::C_ARROWRIGHT => {
+                if self.keys_down.contains(&KeyCode::C_LSHIFT) {
                     self.buffers.current_buffer_mut().start_or_continue_selection();
                 }
-                if self.input_context.is_key_down(&Scancode::L_CTRL) {
+                if self.keys_down.contains(&KeyCode::C_LCTRL) {
                     self.buffers.current_buffer_mut().perform_action(EditAction::MoveNextWord);
                 } else {
                     self.buffers.current_buffer_mut().perform_action(EditAction::MoveRight);
                 }
             }
-            Input::KeyDown(Scancode::UP) => {
-                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+            KeyCode::C_ARROWUP => {
+                if self.keys_down.contains(&KeyCode::C_LSHIFT) {
                     self.buffers.current_buffer_mut().start_or_continue_selection();
                 }
                 self.buffers.current_buffer_mut().perform_action(EditAction::MoveUp);
             }
-            Input::KeyDown(Scancode::DOWN) => {
-                if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+            KeyCode::C_ARROWDOWN => {
+                if self.keys_down.contains(&KeyCode::C_LSHIFT) {
                     self.buffers.current_buffer_mut().start_or_continue_selection();
                 }
                 self.buffers.current_buffer_mut().perform_action(EditAction::MoveDown);
             }
 
-            Input::KeyDown(Scancode::BACKSPACE) => {
+            KeyCode::C_BACKSPACE => {
                 self.buffers.current_buffer_mut().perform_action(EditAction::Backspace);
             }
-            Input::KeyDown(Scancode::DELETE) => {
+            KeyCode::C_DELETE => {
                 self.buffers.current_buffer_mut().perform_action(EditAction::Delete);
             }
 
-            Input::KeyDown(Scancode::SPACE) => {
+            KeyCode::C_SPACE => {
                 self.buffers.current_buffer_mut().perform_action(EditAction::Insert(' '));
             }
             // TODO: Indentation.
-            Input::KeyDown(Scancode::TAB) => {
+            KeyCode::C_TAB => {
                 self.buffers.current_buffer_mut().perform_action(EditAction::Insert('\t'));
             }
-            Input::KeyDown(Scancode::ENTER) => {
+            KeyCode::C_ENTER => {
                 self.buffers.current_buffer_mut().perform_action(EditAction::NewLine);
             }
 
-            Input::MouseDown(MouseButton::Left) => {
-                if let Some((mouse_x, mouse_y)) = self.input_context.mouse_pos() {
-                    let buffer = self.buffers.current_buffer_mut();
-                    buffer.perform_action(EditAction::Click((
-                        mouse_x.saturating_sub(buffer.area.x),
-                        mouse_y.saturating_sub(buffer.area.y),
-                    )));
-                }
-            }
-            Input::WheelUp => {
-                self.buffers.current_buffer_mut().perform_action(EditAction::ScrollUp);
-            }
-            Input::WheelDown => {
-                self.buffers.current_buffer_mut().perform_action(EditAction::ScrollDown);
-            }
-
-            Input::KeyDown(other) => {
-                if let Some(ch) = util::scancode_to_char(other) {
-                    if self.input_context.is_key_down(&Scancode::L_CTRL) {
+            other => {
+                if let Some(ch) = util::keycode_to_char(other) {
+                    if self.keys_down.contains(&KeyCode::C_LCTRL) {
                         match ch {
-                            'q' => {
-                                self.shutdown = true;
-                            }
                             '[' => {
                                 self.buffers.goto_previous(true);
                             }
@@ -291,7 +226,7 @@ impl Program for App {
                             }
                             _ => {}
                         }
-                    } else if self.input_context.is_key_down(&Scancode::L_SHIFT) {
+                    } else if self.keys_down.contains(&KeyCode::C_LSHIFT) {
                         let ch = util::shifted_char(ch);
                         self.buffers.current_buffer_mut().perform_action(EditAction::Insert(ch));
                     } else {
@@ -299,8 +234,18 @@ impl Program for App {
                     }
                 }
             }
+        }
+    }
 
-            _ => {}
+    fn on_wheel_movement(&mut self, cx: AppContext, movement: WheelMovement) {
+
+            self.buffers.current_buffer_mut().perform_action(EditAction::ScrollDown);
+    }
+
+    fn window_desc(&self) -> WindowDescriptor {
+        WindowDescriptor {
+            title: "Rust Editor",
+            ..Default::default()
         }
     }
 }
@@ -397,7 +342,7 @@ pub struct Buffer {
     needs_reparse: bool,
     cursor: Cursor,
     selection: Selection,
-    area: Area,
+    area: Rect,
     scroll_y_offset: u16,
 }
 
@@ -422,7 +367,7 @@ impl Buffer {
             needs_reparse: true,
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
-            area: Area::ZERO, // Set by the render function in `App`.
+            area: Rect::NONE, // Set by the render function in `App`.
             scroll_y_offset: 0,
         }
     }
@@ -1003,58 +948,58 @@ pub enum Selection {
 
 
 mod util {
-    use dreg::Scancode;
+    use bog::event::KeyCode;
 
-    pub fn scancode_to_char(sc: Scancode) -> Option<char> {
+    pub fn keycode_to_char(sc: KeyCode) -> Option<char> {
         Some(match sc {
-            Scancode::K_1 => '1',
-            Scancode::K_2 => '2',
-            Scancode::K_3 => '3',
-            Scancode::K_4 => '4',
-            Scancode::K_5 => '5',
-            Scancode::K_6 => '6',
-            Scancode::K_7 => '7',
-            Scancode::K_8 => '8',
-            Scancode::K_9 => '9',
-            Scancode::K_0 => '0',
+            KeyCode::AN_1 => '1',
+            KeyCode::AN_2 => '2',
+            KeyCode::AN_3 => '3',
+            KeyCode::AN_4 => '4',
+            KeyCode::AN_5 => '5',
+            KeyCode::AN_6 => '6',
+            KeyCode::AN_7 => '7',
+            KeyCode::AN_8 => '8',
+            KeyCode::AN_9 => '9',
+            KeyCode::AN_0 => '0',
 
-            Scancode::MINUS => '-',
-            Scancode::EQUAL => '=',
-            Scancode::L_BRACE => '[',
-            Scancode::R_BRACE => ']',
-            Scancode::BACKSLASH => '\\',
-            Scancode::SEMICOLON => ';',
-            Scancode::APOSTROPHE => '\'',
-            Scancode::COMMA => ',',
-            Scancode::DOT => '.',
-            Scancode::SLASH => '/',
+            KeyCode::AN_MINUS => '-',
+            KeyCode::AN_EQUAL => '=',
+            KeyCode::AN_LBRACKET => '[',
+            KeyCode::AN_RBRACKET => ']',
+            KeyCode::AN_BACKSLASH => '\\',
+            KeyCode::AN_SEMICOLON => ';',
+            KeyCode::AN_APOSTROPHE => '\'',
+            KeyCode::AN_COMMA => ',',
+            KeyCode::AN_DOT => '.',
+            KeyCode::AN_SLASH => '/',
 
-            Scancode::A => 'a',
-            Scancode::B => 'b',
-            Scancode::C => 'c',
-            Scancode::D => 'd',
-            Scancode::E => 'e',
-            Scancode::F => 'f',
-            Scancode::G => 'g',
-            Scancode::H => 'h',
-            Scancode::I => 'i',
-            Scancode::J => 'j',
-            Scancode::K => 'k',
-            Scancode::L => 'l',
-            Scancode::M => 'm',
-            Scancode::N => 'n',
-            Scancode::O => 'o',
-            Scancode::P => 'p',
-            Scancode::Q => 'q',
-            Scancode::R => 'r',
-            Scancode::S => 's',
-            Scancode::T => 't',
-            Scancode::U => 'u',
-            Scancode::V => 'v',
-            Scancode::W => 'w',
-            Scancode::X => 'x',
-            Scancode::Y => 'y',
-            Scancode::Z => 'z',
+            KeyCode::AN_A => 'a',
+            KeyCode::AN_B => 'b',
+            KeyCode::AN_C => 'c',
+            KeyCode::AN_D => 'd',
+            KeyCode::AN_E => 'e',
+            KeyCode::AN_F => 'f',
+            KeyCode::AN_G => 'g',
+            KeyCode::AN_H => 'h',
+            KeyCode::AN_I => 'i',
+            KeyCode::AN_J => 'j',
+            KeyCode::AN_K => 'k',
+            KeyCode::AN_L => 'l',
+            KeyCode::AN_M => 'm',
+            KeyCode::AN_N => 'n',
+            KeyCode::AN_O => 'o',
+            KeyCode::AN_P => 'p',
+            KeyCode::AN_Q => 'q',
+            KeyCode::AN_R => 'r',
+            KeyCode::AN_S => 's',
+            KeyCode::AN_T => 't',
+            KeyCode::AN_U => 'u',
+            KeyCode::AN_V => 'v',
+            KeyCode::AN_W => 'w',
+            KeyCode::AN_X => 'x',
+            KeyCode::AN_Y => 'y',
+            KeyCode::AN_Z => 'z',
 
             _ => None?,
         })
@@ -1094,7 +1039,7 @@ mod util {
 pub struct ScopeSelectors {
     pub comment: syntect::highlighting::ScopeSelector,
     pub doc_comment: syntect::highlighting::ScopeSelectors,
-    pub function: syntect::highlighting::ScopeSelector,
+    pub function: syntect::highlighting::ScopeSelectors,
     pub keyword: syntect::highlighting::ScopeSelectors,
     pub types: syntect::highlighting::ScopeSelectors,
 }
@@ -1104,7 +1049,7 @@ impl Default for ScopeSelectors {
         ScopeSelectors {
             comment: "comment - comment.block.attribute".parse().unwrap(),
             doc_comment: "comment.line.documentation, comment.block.documentation".parse().unwrap(),
-            function: "entity.name.function".parse().unwrap(),
+            function: "entity.name.function, support.function".parse().unwrap(),
             keyword: "keyword, storage".parse().unwrap(),
             types: "entity.name.class, entity.name.struct, entity.name.enum, entity.name.type"
                 .parse().unwrap(),
@@ -1123,11 +1068,11 @@ pub enum SourceScope {
 impl SourceScope {
     pub const fn color(&self) -> Color {
         match self {
-            SourceScope::Comment => Color::Rgb(0x59, 0x59, 0x6d),
-            SourceScope::DocComment => Color::Rgb(0x87, 0xb6, 0x97),
-            SourceScope::Function => Color::Rgb(0x95, 0xb7, 0xdf),
-            SourceScope::Keyword => Color::Rgb(0xd9, 0x6d, 0x81),
-            SourceScope::Type => Color::Rgb(0x8b, 0x8b, 0x95),
+            SourceScope::Comment => Color::new(0x59, 0x59, 0x6d, 0xff),
+            SourceScope::DocComment => Color::new(0x87, 0xb6, 0x97, 0xff),
+            SourceScope::Function => Color::new(0x95, 0xb7, 0xdf, 0xff),
+            SourceScope::Keyword => Color::new(0xd9, 0x6d, 0x81, 0xff),
+            SourceScope::Type => Color::new(0x8b, 0x8b, 0x95, 0xff),
         }
     }
 }
