@@ -58,7 +58,7 @@ struct App {
 }
 
 impl AppHandler for App {
-    fn render(&mut self, cx: AppContext, layers: &mut LayerStack) {
+    fn render<'pass>(&'pass mut self, cx: AppContext, layers: &mut LayerStack<'pass>) {
         let buffer = self.buffers.current_buffer_mut();
         if buffer.needs_reparse {
             buffer.parse(&self.syntaxes);
@@ -81,7 +81,7 @@ impl AppHandler for App {
         for (index, row) in buffer.visible_rows().enumerate() {
             if row.line_index != last_line_index {
                 // layers.fill_text(Text {
-                //     content: &format!("{}", row.line_index + 1),
+                //     content: format!("{}", row.line_index + 1),
                 //     color: GRAY_5,
                 //     size: 17.0,
                 //     pos: vec2(gutter_area.x, gutter_area.y + y_offset),
@@ -91,7 +91,7 @@ impl AppHandler for App {
                 // });
             }
             layers.fill_text(Text {
-                content: row.content,
+                content: &*&row.content,
                 color: GRAY_7,
                 size: 17.0,
                 pos: vec2(buffer_area.x, buffer_area.y + y_offset),
@@ -152,16 +152,15 @@ impl AppHandler for App {
     }
 
     // fn on_primary_mouse_down(&mut self, cx: AppContext) {
-    //     if let Some((mouse_x, mouse_y)) = self.input_context.mouse_pos() {
-    //         let buffer = self.buffers.current_buffer_mut();
-    //         buffer.perform_action(EditAction::Click((
-    //             mouse_x.saturating_sub(buffer.area.x),
-    //             mouse_y.saturating_sub(buffer.area.y),
-    //         )));
-    //     }
+    //     let buffer = self.buffers.current_buffer_mut();
+    //     buffer.perform_action(EditAction::Click((
+    //         self.mouse_pos.x.saturating_sub(buffer.area.x),
+    //         self.mouse_pos.y.saturating_sub(buffer.area.y),
+    //     )));
     // }
 
-    fn on_key_down(&mut self, cx: AppContext, code: KeyCode, repeat: bool) {
+    fn on_key_down(&mut self, cx: AppContext, code: KeyCode, _repeat: bool) {
+        cx.window.request_redraw();
         match code {
             KeyCode::C_ARROWLEFT => {
                 if self.keys_down.contains(&KeyCode::C_LSHIFT) {
@@ -237,9 +236,23 @@ impl AppHandler for App {
         }
     }
 
-    fn on_wheel_movement(&mut self, cx: AppContext, movement: WheelMovement) {
-
-            self.buffers.current_buffer_mut().perform_action(EditAction::ScrollDown);
+    fn on_wheel_movement(&mut self, _cx: AppContext, movement: WheelMovement) {
+        match movement {
+            WheelMovement::Lines { y, .. } => {
+                if y.is_sign_negative() {
+                    self.buffers.current_buffer_mut().perform_action(EditAction::ScrollDown);
+                } else {
+                    self.buffers.current_buffer_mut().perform_action(EditAction::ScrollUp);
+                }
+            }
+            WheelMovement::Pixels { y, .. } => {
+                if y.is_sign_negative() {
+                    self.buffers.current_buffer_mut().perform_action(EditAction::ScrollDown);
+                } else {
+                    self.buffers.current_buffer_mut().perform_action(EditAction::ScrollUp);
+                }
+            }
+        }
     }
 
     fn window_desc(&self) -> WindowDescriptor {
@@ -260,7 +273,7 @@ pub struct BufferSet {
 impl BufferSet {
     pub fn new(initial_buffer_path: PathBuf, initial_buffer_content: &str) -> Self {
         let scratch_buffer = Buffer::new(BufferKind::Other, "");
-        let mut current_buffer = Buffer::new(
+        let current_buffer = Buffer::new(
             BufferKind::File(initial_buffer_path),
             initial_buffer_content,
         );
