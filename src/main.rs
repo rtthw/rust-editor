@@ -58,7 +58,7 @@ struct App {
 impl AppHandler for App {
     fn startup(&mut self, cx: AppContext) {
         self.cell_size = cx.renderer.measure_text(&Text {
-            content: "█",
+            content: "█".into(),
             size: 17.0,
             font_family: FontFamily::Monospace,
             ..Default::default()
@@ -68,16 +68,26 @@ impl AppHandler for App {
     fn render<'pass>(&'pass mut self, cx: AppContext, layers: &mut LayerStack<'pass>) {
         let buffer = self.buffers.current_buffer_mut();
         if buffer.needs_reparse {
-            buffer.parse(&self.syntaxes);
+            // buffer.parse(&self.syntaxes);
             buffer.needs_reparse = false;
         }
 
+        layers.start_layer(cx.renderer.viewport_rect());
+        layers.fill_quad(Quad {
+            bounds: cx.renderer.viewport_rect(),
+            bg_color: GRAY_1,
+            ..Default::default()
+        });
+        layers.end_layer();
+        layers.start_layer(cx.renderer.viewport_rect());
+
         let (_side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
+        let (gutter_area, buffer_area) = buffer_area.hsplit_len(23.0);
 
-        let (_gutter_area, buffer_area) = buffer_area.hsplit_len(23.0);
-
-        buffer.area = buffer_area;
-        let buffer_cols = (buffer_area.x / self.cell_size.x).floor() as usize;
+        let buffer_cols = (buffer_area.w / self.cell_size.x).floor() as usize;
+        let buffer_rows = (buffer_area.h / self.cell_size.y).floor() as usize;
+        buffer.cols = buffer_cols;
+        buffer.rows = buffer_rows;
 
         let mut cursor_row = 0;
         let mut last_line_index = 1;
@@ -85,15 +95,15 @@ impl AppHandler for App {
         let mut y_offset = 0.0;
         for (index, row) in buffer.visible_rows().enumerate() {
             if row.line_index != last_line_index {
-                // layers.fill_text(Text {
-                //     content: format!("{}", row.line_index + 1),
-                //     color: GRAY_5,
-                //     size: 17.0,
-                //     pos: vec2(gutter_area.x, gutter_area.y + y_offset),
-                //     bounds: gutter_area.size(),
-                //     font_family: FontFamily::Monospace,
-                //     ..Default::default()
-                // });
+                layers.fill_text(Text {
+                    content: format!("{}", row.line_index + 1).into(),
+                    color: GRAY_5,
+                    size: 17.0,
+                    pos: vec2(gutter_area.x, gutter_area.y + y_offset),
+                    bounds: gutter_area.size(),
+                    font_family: FontFamily::Monospace,
+                    ..Default::default()
+                });
             }
 
             // Highlight selection.
@@ -151,7 +161,7 @@ impl AppHandler for App {
             }
 
             layers.fill_text(Text {
-                content: &row.content,
+                content: row.content.into(),
                 color: GRAY_7,
                 size: 17.0,
                 pos: vec2(buffer_area.x, buffer_area.y + y_offset),
@@ -183,6 +193,8 @@ impl AppHandler for App {
             bg_color: GRAY_9,
             ..Default::default()
         });
+
+        layers.end_layer();
     }
 
     // fn on_primary_mouse_down(&mut self, cx: AppContext) {
@@ -395,7 +407,8 @@ pub struct Buffer {
     needs_reparse: bool,
     cursor: Cursor,
     selection: Selection,
-    area: Rect,
+    rows: usize,
+    cols: usize,
     scroll_y_offset: u16,
 }
 
@@ -420,7 +433,7 @@ impl Buffer {
             needs_reparse: true,
             cursor: Cursor { line: 0, index: 0 },
             selection: Selection::None,
-            area: Rect::NONE, // Set by the render function in `App`.
+            rows: 0, cols: 0, // Set by the render function in `App`.
             scroll_y_offset: 0,
         }
     }
@@ -473,9 +486,9 @@ impl Buffer {
         self.lines.iter()
             .enumerate()
             .flat_map(move |(line_index, line)| {
-                if line.content.len() > self.area.w as usize {
+                if line.content.len() > self.cols {
                     let mut rows = Vec::with_capacity(3);
-                    let (first, mut last) = line.content.split_at(self.area.w as usize);
+                    let (first, mut last) = line.content.split_at(self.cols);
                     num += 1;
                     rows.push(Row {
                         num,
@@ -484,8 +497,8 @@ impl Buffer {
                         content: first,
                     });
                     let mut index = 1;
-                    while last.len() > self.area.w as usize {
-                        let (next, then) = line.content.split_at(self.area.w as usize);
+                    while last.len() > self.cols {
+                        let (next, then) = line.content.split_at(self.cols);
                         last = then;
                         num += 1;
                         rows.push(Row {
@@ -522,7 +535,7 @@ impl Buffer {
     pub fn visible_rows(&self) -> impl Iterator<Item = Row> {
         self.rows()
             .skip(self.scroll_y_offset as usize)
-            .take(self.area.h as usize)
+            .take(self.rows)
     }
 }
 
@@ -542,7 +555,7 @@ impl Buffer {
 
         // Append the inserted text, line by line
         // we want to see a blank entry if the string ends with a newline
-        //TODO: adjust this to get line ending from data?
+        // TODO: adjust this to get line ending from data?
         let addendum = std::iter::once("").filter(|_| content.ends_with('\n'));
         let mut lines_iter = content.split_inclusive('\n').chain(addendum);
         if let Some(content_line) = lines_iter.next() {
@@ -597,7 +610,6 @@ impl Buffer {
 
     pub fn start_or_continue_selection(&mut self) {
         if let Selection::None = &self.selection {
-            println!("Starting selection...");
             self.selection = Selection::Normal(self.cursor);
         }
     }
@@ -778,7 +790,7 @@ impl Buffer {
                     } else {
                         x as usize
                     };
-                    new_index = (row.index * self.area.w as usize) + addendum;
+                    new_index = (row.index * self.cols) + addendum;
                 }
 
                 self.cursor.line = new_line_index;
@@ -818,22 +830,22 @@ impl Buffer {
             }
             EditAction::MoveUp => {
                 let line = self.lines.get(self.cursor.line).unwrap();
-                if line.content.len() > self.area.w as usize {
+                if line.content.len() > self.cols {
                     // FIXME: This is likely a horribly inefficient way to do this.
 
-                    let row_count = (line.content.len() as f32 / self.area.w as f32)
+                    let row_count = (line.content.len() as f32 / self.cols as f32)
                         .ceil() as usize;
                     let mut row_index = 0;
                     for i in 0..row_count {
-                        if (i * self.area.w as usize) <= self.cursor.index {
+                        if (i * self.cols) <= self.cursor.index {
                             row_index = i;
                         } else {
                             break;
                         }
                     }
                     if row_index > 0 {
-                        let row_offset = self.cursor.index % self.area.w as usize;
-                        self.cursor.index = ((row_index - 1) * self.area.w as usize)
+                        let row_offset = self.cursor.index % self.cols;
+                        self.cursor.index = ((row_index - 1) * self.cols)
                             + row_offset;
                     } else {
                         if self.cursor.line > 0 {
@@ -848,15 +860,15 @@ impl Buffer {
                     if self.cursor.line > 0 {
                         self.cursor.line -= 1;
                         let line = self.lines.get(self.cursor.line).unwrap();
-                        let row_count = (line.content.len() as f32 / self.area.w as f32)
+                        let row_count = (line.content.len() as f32 / self.cols as f32)
                             .ceil() as usize;
                         if row_count > 1 {
-                            let row_len = line.content.len() % self.area.w as usize;
+                            let row_len = line.content.len() % self.cols;
                             let row_offset = self.cursor.index;
                             if row_len < row_offset {
                                 self.cursor.index = line.content.len();
                             } else {
-                                self.cursor.index = ((row_count - 1) * self.area.w as usize)
+                                self.cursor.index = ((row_count - 1) * self.cols)
                                     + row_offset;
                             }
                         } else {
@@ -869,20 +881,20 @@ impl Buffer {
             }
             EditAction::MoveDown => {
                 let line = self.lines.get(self.cursor.line).unwrap();
-                if line.content.len() > self.area.w as usize {
-                    let row_count = (line.content.len() as f32 / self.area.w as f32)
+                if line.content.len() > self.cols {
+                    let row_count = (line.content.len() as f32 / self.cols as f32)
                         .ceil() as usize;
                     let mut row_index = 0;
                     for i in 0..row_count {
-                        if (i * self.area.w as usize) <= self.cursor.index {
+                        if (i * self.cols) <= self.cursor.index {
                             row_index = i;
                         } else {
                             break;
                         }
                     }
                     if row_index + 1 < row_count {
-                        let row_offset = self.cursor.index % self.area.w as usize;
-                        self.cursor.index = ((row_index + 1) * self.area.w as usize)
+                        let row_offset = self.cursor.index % self.cols;
+                        self.cursor.index = ((row_index + 1) * self.cols)
                             + row_offset;
                     } else {
                         if self.cursor.line + 1 < self.lines.len() {
