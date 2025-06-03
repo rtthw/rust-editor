@@ -98,8 +98,7 @@ impl AppHandler for App {
             content: header_text.into(),
             color: GRAY_7,
             size: 13.0,
-            pos: header_area.position(),
-            bounds: header_area.size(),
+            bounds: header_area,
             ..Default::default()
         });
 
@@ -111,8 +110,10 @@ impl AppHandler for App {
                     content: entry.name.into(),
                     color: GRAY_5,
                     size: 11.0,
-                    pos: vec2(files_area.x + padding, files_area.y + y_offset),
-                    bounds: vec2(files_area.w - padding, 17.0),
+                    bounds: Rect::new(
+                        vec2(files_area.x + padding, files_area.y + y_offset),
+                        vec2(files_area.w - padding, 17.0),
+                    ),
                     ..Default::default()
                 });
             } else {
@@ -120,8 +121,10 @@ impl AppHandler for App {
                     content: entry.name.into(),
                     color: GRAY_5,
                     size: 11.0,
-                    pos: vec2(files_area.x, files_area.y + y_offset),
-                    bounds: vec2(files_area.w, 17.0),
+                    bounds: Rect::new(
+                        vec2(files_area.x, files_area.y + y_offset),
+                        vec2(files_area.w, 17.0),
+                    ),
                     ..Default::default()
                 });
             }
@@ -145,8 +148,10 @@ impl AppHandler for App {
                     content: format!("{}", row.line_index + 1).into(),
                     color: if row.line_index == buffer.cursor.line { GRAY_6 } else { GRAY_5 },
                     size: 17.0,
-                    pos: vec2(gutter_area.x, gutter_area.y + y_offset),
-                    bounds: gutter_area.size(),
+                    bounds: Rect::new(
+                        vec2(gutter_area.x, gutter_area.y + y_offset),
+                        gutter_area.size(),
+                    ),
                     font_family: FontFamily::Monospace,
                     ..Default::default()
                 });
@@ -210,8 +215,10 @@ impl AppHandler for App {
                 content: row.content.into(),
                 color: GRAY_7,
                 size: 17.0,
-                pos: vec2(buffer_area.x, buffer_area.y + y_offset),
-                bounds: buffer_area.size(),
+                bounds: Rect::new(
+                    vec2(buffer_area.x, buffer_area.y + y_offset),
+                    buffer_area.size(),
+                ),
                 font_family: FontFamily::Monospace,
                 ..Default::default()
             });

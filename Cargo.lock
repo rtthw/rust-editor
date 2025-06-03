@@ -213,7 +213,6 @@ dependencies = [
  "pollster",
  "raw-window-handle 0.5.2",
  "thiserror 2.0.12",
- "wgpu",
 ]
 
 [[package]]
