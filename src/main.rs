@@ -57,6 +57,9 @@ struct App {
 
 impl AppHandler for App {
     fn startup(&mut self, cx: AppContext) {
+        // cx.renderer.load_font(include_bytes!("../data/JetBrainsMonoNerdFont_Regular.ttf"));
+        cx.renderer.set_monospace_family("JetBrainsMono Nerd Font");
+
         self.cell_size = cx.renderer.measure_text(&Text {
             content: "█".into(),
             size: 17.0,
@@ -82,7 +85,7 @@ impl AppHandler for App {
         layers.start_layer(cx.renderer.viewport_rect());
 
         let (_side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
-        let (gutter_area, buffer_area) = buffer_area.hsplit_len(23.0);
+        let (gutter_area, buffer_area) = buffer_area.hsplit_len(73.0);
 
         let buffer_cols = (buffer_area.w / self.cell_size.x).floor() as usize;
         let buffer_rows = (buffer_area.h / self.cell_size.y).floor() as usize;
@@ -97,7 +100,7 @@ impl AppHandler for App {
             if row.line_index != last_line_index {
                 layers.fill_text(Text {
                     content: format!("{}", row.line_index + 1).into(),
-                    color: GRAY_5,
+                    color: if row.line_index == buffer.cursor.line { GRAY_6 } else { GRAY_5 },
                     size: 17.0,
                     pos: vec2(gutter_area.x, gutter_area.y + y_offset),
                     bounds: gutter_area.size(),
