@@ -34,8 +34,7 @@ fn main() -> Result<()> {
     let syntaxes = syntect::parsing::SyntaxSet::load_defaults_nonewlines();
 
     run_app(App {
-        shutdown: false,
-        initialized: false,
+        cell_size: vec2(1.0, 1.0), // Cannot be 0.
         workspace,
         buffers: BufferSet::new("./src/main.rs".into(), include_str!("main.rs")),
         syntaxes,
@@ -48,8 +47,7 @@ fn main() -> Result<()> {
 
 
 struct App {
-    shutdown: bool,
-    initialized: bool,
+    cell_size: Vec2,
 
     workspace: Workspace,
     buffers: BufferSet,
@@ -58,6 +56,15 @@ struct App {
 }
 
 impl AppHandler for App {
+    fn startup(&mut self, cx: AppContext) {
+        self.cell_size = cx.renderer.measure_text(&Text {
+            content: "█",
+            size: 17.0,
+            font_family: FontFamily::Monospace,
+            ..Default::default()
+        });
+    }
+
     fn render<'pass>(&'pass mut self, cx: AppContext, layers: &mut LayerStack<'pass>) {
         let buffer = self.buffers.current_buffer_mut();
         if buffer.needs_reparse {
@@ -65,14 +72,12 @@ impl AppHandler for App {
             buffer.needs_reparse = false;
         }
 
-        let (side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
+        let (_side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
 
-        let (gutter_area, buffer_area) = buffer_area.hsplit_len(23.0);
+        let (_gutter_area, buffer_area) = buffer_area.hsplit_len(23.0);
 
         buffer.area = buffer_area;
-
-        let max_gutter_width = gutter_area.w as usize;
-        let max_line_width = buffer_area.w as usize;
+        let buffer_cols = (buffer_area.x / self.cell_size.x).floor() as usize;
 
         let mut cursor_row = 0;
         let mut last_line_index = 1;
@@ -90,8 +95,63 @@ impl AppHandler for App {
                 //     ..Default::default()
                 // });
             }
+
+            // Highlight selection.
+            if let Some((start_cursor, end_cursor)) = &selection {
+                if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
+                    let start_pos = self.cell_size.x * (start_cursor.index % buffer_cols) as f32;
+                    let end_pos = self.cell_size.x * (end_cursor.index % buffer_cols) as f32;
+
+                    if start_cursor.line == end_cursor.line {
+                        // Highlight from the start position to the end position.
+                        layers.fill_quad(Quad {
+                            bounds: Rect::new(
+                                vec2(buffer_area.x + start_pos, buffer_area.y + y_offset),
+                                vec2(end_pos - start_pos, self.cell_size.y),
+                            ),
+                            bg_color: GRAY_3,
+                            ..Default::default()
+                        });
+                    } else if row.line_index == start_cursor.line {
+                        // Highlight from the start position to the end of the row.
+                        let width = self.cell_size.x * row.content.len() as f32;
+                        layers.fill_quad(Quad {
+                            bounds: Rect::new(
+                                vec2(buffer_area.x + start_pos, buffer_area.y + y_offset),
+                                vec2(width - start_pos, self.cell_size.y),
+                            ),
+                            bg_color: GRAY_3,
+                            ..Default::default()
+                        });
+                    } else if row.line_index > start_cursor.line
+                        && row.line_index < end_cursor.line
+                    {
+                        // Highlight the whole line.
+                        let width = self.cell_size.x * row.content.len() as f32;
+                        layers.fill_quad(Quad {
+                            bounds: Rect::new(
+                                vec2(buffer_area.x, buffer_area.y + y_offset),
+                                vec2(width, self.cell_size.y),
+                            ),
+                            bg_color: GRAY_3,
+                            ..Default::default()
+                        });
+                    } else if row.line_index == end_cursor.line {
+                        // Highlight from the start of the row to the end position.
+                        layers.fill_quad(Quad {
+                            bounds: Rect::new(
+                                vec2(buffer_area.x, buffer_area.y + y_offset),
+                                vec2(end_pos, self.cell_size.y),
+                            ),
+                            bg_color: GRAY_3,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+
             layers.fill_text(Text {
-                content: &*&row.content,
+                content: &row.content,
                 color: GRAY_7,
                 size: 17.0,
                 pos: vec2(buffer_area.x, buffer_area.y + y_offset),
@@ -101,54 +161,28 @@ impl AppHandler for App {
             });
             last_line_index = row.line_index;
             if row.line_index == buffer.cursor.line {
-                if (row.index * buffer.area.w as usize) <= buffer.cursor.index {
+                if row.index * buffer_cols <= buffer.cursor.index {
                     cursor_row = index;
                 }
             }
 
-            // Highlight selection.
-            // if let Some((start_cursor, end_cursor)) = &selection {
-            //     if row.line_index >= start_cursor.line && row.line_index <= end_cursor.line {
-            //         let start_index = start_cursor.index as u16 % buffer.area.w;
-            //         let end_index = end_cursor.index as u16 % buffer.area.w;
-
-            //         if start_cursor.line == end_cursor.line {
-            //             // Highlight from the start index to the end index.
-            //             for i in start_index..end_index {
-            //                 frame.buffer.get_mut(area.x + i, area.y)
-            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-            //             }
-            //         } else if row.line_index == start_cursor.line {
-            //             // Highlight from the start index to the end of the row.
-            //             for i in start_index..(row.content.len() as u16) {
-            //                 frame.buffer.get_mut(area.x + i, area.y)
-            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-            //             }
-            //         } else if row.line_index > start_cursor.line
-            //             && row.line_index < end_cursor.line
-            //         {
-            //             // Highlight the whole line.
-            //             for i in 0..row.content.len() {
-            //                 frame.buffer.get_mut(area.x + i as u16, area.y)
-            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-            //             }
-            //         } else if row.line_index == end_cursor.line {
-            //             // Highlight from the start of the row to the end index.
-            //             for i in 0..end_index {
-            //                 frame.buffer.get_mut(area.x + i, area.y)
-            //                     .bg = Color::from_rgb(0x59, 0x59, 0x6d);
-            //             }
-            //         }
-            //     }
-            // }
-
-            y_offset += 23.0; // TODO: `line_height`.
+            y_offset += self.cell_size.y;
         }
 
-        // frame.cursor = Some((
-        //     buffer_area.x + (buffer.cursor.index as u16 % buffer.area.w),
-        //     buffer_area.y + cursor_row as u16,
-        // ));
+        // Draw cursor.
+        layers.fill_quad(Quad {
+            bounds: Rect::new(
+                vec2(
+                    buffer_area.x
+                        + (self.cell_size.x * (buffer.cursor.index % buffer_cols) as f32)
+                        - 1.0, // Offset here so it is exactly centered.
+                    buffer_area.y + (self.cell_size.y * cursor_row as f32),
+                ),
+                vec2(2.0, self.cell_size.y),
+            ),
+            bg_color: GRAY_9,
+            ..Default::default()
+        });
     }
 
     // fn on_primary_mouse_down(&mut self, cx: AppContext) {
@@ -160,6 +194,8 @@ impl AppHandler for App {
     // }
 
     fn on_key_down(&mut self, cx: AppContext, code: KeyCode, _repeat: bool) {
+        let _is_repeat = self.keys_down.insert(code);
+
         cx.window.request_redraw();
         match code {
             KeyCode::C_ARROWLEFT => {
@@ -234,6 +270,10 @@ impl AppHandler for App {
                 }
             }
         }
+    }
+
+    fn on_key_up(&mut self, _cx: AppContext, code: KeyCode) {
+        let _was_present = self.keys_down.remove(&code);
     }
 
     fn on_wheel_movement(&mut self, _cx: AppContext, movement: WheelMovement) {
@@ -557,6 +597,7 @@ impl Buffer {
 
     pub fn start_or_continue_selection(&mut self) {
         if let Selection::None = &self.selection {
+            println!("Starting selection...");
             self.selection = Selection::Normal(self.cursor);
         }
     }
