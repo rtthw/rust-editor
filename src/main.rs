@@ -84,7 +84,50 @@ impl AppHandler for App {
         layers.end_layer();
         layers.start_layer(cx.renderer.viewport_rect());
 
-        let (_side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
+        let (side_area, buffer_area) = cx.renderer.viewport_rect().hsplit_portion(0.2);
+
+        let (header_area, files_area) = side_area.vsplit_len(37.0);
+        let header_area = header_area.shrink(7.0, 7.0);
+        let files_area = files_area.shrink_h(11.0);
+
+        let header_text = self.workspace.info.path.file_name()
+            .and_then(|os_str| os_str.to_str())
+            .unwrap();
+
+        layers.fill_text(Text {
+            content: header_text.into(),
+            color: GRAY_7,
+            size: 13.0,
+            pos: header_area.position(),
+            bounds: header_area.size(),
+            ..Default::default()
+        });
+
+        let mut y_offset = 0.0;
+        for entry in self.workspace.entries() {
+            if entry.level > 0 {
+                let padding = 7.0 * entry.level as f32;
+                layers.fill_text(Text {
+                    content: entry.name.into(),
+                    color: GRAY_5,
+                    size: 11.0,
+                    pos: vec2(files_area.x + padding, files_area.y + y_offset),
+                    bounds: vec2(files_area.w - padding, 17.0),
+                    ..Default::default()
+                });
+            } else {
+                layers.fill_text(Text {
+                    content: entry.name.into(),
+                    color: GRAY_5,
+                    size: 11.0,
+                    pos: vec2(files_area.x, files_area.y + y_offset),
+                    bounds: vec2(files_area.w, 17.0),
+                    ..Default::default()
+                });
+            }
+            y_offset += 17.0;
+        }
+
         let (gutter_area, buffer_area) = buffer_area.hsplit_len(73.0);
 
         let buffer_cols = (buffer_area.w / self.cell_size.x).floor() as usize;
